@@ -1,31 +1,112 @@
-.PHONY: up down help
+# ============================================================
+# Usage:
+#   make up                   → start via Docker Compose (default)
+#   make up USE_KIND=true     → provision kind cluster, then deploy
+#   make down                 → stop (compose or kind, auto-detected)
+#   make up ENV=prod          → compose prod overrides
+# ============================================================
 
-up: install-kind-deps up-kind-cluster
-default: up
+ENV          ?= dev
+USE_KIND     ?= false
+CLUSTER_NAME ?= local-cluster
+KIND_CONFIG  ?= ../cluster/kind-config.yaml
 
-.PHONY: install-kind-deps
-install-kind-deps: 
-	@command -v kubectl >/dev/null 2>&1 || { echo >&2 "kubectl not found. Installing..."; curl -LO "https://storage.googleapis.com/kubernetes-release/release/`curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt`/bin/linux/amd64/kubectl"; chmod +x kubectl; sudo mv kubectl /usr/local/bin/; }
-	@command -v kind >/dev/null 2>&1 || { echo >&2 "kind not found. Installing..."; curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64; chmod +x ./kind; sudo mv ./kind /usr/local/bin/kind; }
-	@command -v helm >/dev/null 2>&1 || { echo >&2 "helm not found. Installing..."; curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash; }
-	@echo "All dependencies are installed."
 
-.PHONY: up-kind-cluster
-up-kind-cluster:
-	@echo "Starting single-node Kubernetes cluster with kind..."
-	@kind create cluster --name local-cluster --wait 60s --config cluster/kind-config.yaml >/dev/null 2>&1 || echo "Cluster may already exist."
+# ── Compose setup ───────────────────────────────────────────
+COMPOSE_BASE  = docker-compose.yml
+COMPOSE_ENV   = docker-compose.$(if $(filter prod,$(ENV)),prod,$(if $(filter ci,$(ENV)),ci,override)).yml
+DC            = docker compose -f ./compose/$(COMPOSE_BASE) -f ./compose/$(COMPOSE_ENV)
 
-down: down-kind-cluster
+.PHONY: help up down build restart logs shell ps clean prune lint health smoke-test \
+        kind-up kind-down kind-status compose-up compose-down
 
-.PHONY: down-kind-cluster
-down-kind-cluster:
-	@echo "Stopping and deleting kind cluster..."
-	@kind delete cluster --name local-cluster
+# ── Help ────────────────────────────────────────────────────
+default: help
+help: ## Show this help
+	@echo ""
+	@echo "  Usage: make <target> [USE_KIND=true] [ENV=dev|prod|ci]"
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "  Examples:"
+	@echo "    make up                  # Docker Compose (default)"
+	@echo "    make up USE_KIND=true    # kind cluster + deploy"
+	@echo "    make up ENV=prod         # Compose prod overrides"
+	@echo ""
 
-help:
-	@echo "Usage:"
-	@echo "  make up          - Start kind cluster"
-	@echo "  make down   			- Stop and delete the Kubernetes cluster"
-	@echo "  make help        - Show help message"
+# ── .env bootstrap ──────────────────────────────────────────
+.env:
+	@cp .env.example .env
+	@echo "⚠️  .env created from .env.example — update credentials before running"
+
+# ── Entry points (branch on USE_KIND) ───────────────────────
+ifeq ($(USE_KIND),true)
+
+up: kind-up ## Start stack — kind cluster path (USE_KIND=true)
+
+down: kind-down ## Tear down kind cluster
+
+else
+
+up: .env compose-up ## Start stack — Docker Compose path (default)
+
+down: compose-down ## Stop Docker Compose stack
+
+endif
+
+
+# ── Docker Compose targets ───────────────────────────────────
+compose-up: .env ## (internal) Start via Docker Compose
+	@echo "🐳 Starting analytics stack via Docker Compose [ENV=$(ENV)]..."
+	$(DC) up -d --remove-orphans
+	@echo ""
+	@echo "🚀 Stack is up:"
+	@echo "   Trino UI          → http://localhost:$${TRINO_PORT:-8080}"
+	@echo "   Iceberg REST      → http://localhost:$${ICEBERG_REST_PORT:-8181}"
+	@echo "   MinIO Console     → http://localhost:$${MINIO_CONSOLE_PORT:-9001}"
+	@echo "   Postgres          → localhost:5432 (dev only)"
+	@echo ""
+
+compose-down: ## (internal) Stop Docker Compose stack
+	$(DC) down
+
+build: ## Pull latest images
+	$(DC) pull
+
+restart: ## Restart all Compose services
+	$(DC) restart
+
+logs: ## Tail logs — make logs SERVICE=trino
+	$(DC) logs -f $(SERVICE)
+
+shell: ## Shell into a service — make shell SERVICE=trino
+	$(DC) exec $(SERVICE) bash || $(DC) exec $(SERVICE) sh
+
+ps: ## Show running containers and health status
+	$(DC) ps
+
+clean: ## Remove containers, networks, volumes — ⚠️  destroys data
+	$(DC) down -v --remove-orphans
+
+prune: ## Remove ALL unused Docker resources — ⚠️  dangerous
+	docker system prune -af --volumes
+
+lint: ## Validate compose config syntax
+	$(DC) config --quiet && echo "✅ Compose config is valid"
+
+# ── Kind cluster targets ─────────────────────────────────────
+kind-up: ## (internal) Provision kind cluster and deploy stack
+	@bash scripts/kind-deploy.sh up $(CLUSTER_NAME) $(KIND_CONFIG)
+
+kind-down: ## (internal) Delete kind cluster
+	@bash scripts/kind-deploy.sh down $(CLUSTER_NAME)
+
+kind-status: ## Show kind cluster and pod status
+	@bash scripts/kind-deploy.sh status $(CLUSTER_NAME)
+
+# ── Health & smoke ───────────────────────────────────────────
+health: ## Check health of all running services
+	@bash scripts/health-check.sh
 
 
