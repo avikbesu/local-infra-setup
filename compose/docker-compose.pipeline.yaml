@@ -1,0 +1,109 @@
+# ============================================================
+# docker-compose.pipeline.yaml
+# All Airflow services — Airflow 3 with LocalExecutor.
+#
+# Airflow 3 architectural changes vs Airflow 2:
+#   - `webserver` is replaced by `api-server`
+#   - api-server serves the UI (React), REST API, and the
+#     Task Execution Interface (tasks no longer hit the DB directly)
+#   - Scheduler must know the api-server URL via
+#     AIRFLOW__CORE__EXECUTION_API_SERVER_URL
+#   - Secret key config moved from [webserver] → [api] section
+#
+# Profiles:
+#   pipeline  — airflow-init + scheduler  (headless execution)
+#
+# Typical usage: 
+#   with UI: docker compose --profile pipeline up -d
+# ============================================================
+
+# --------------- Airflow shared anchors ---------------------
+x-airflow-common: &airflow-common
+  image: apache/airflow:3.0.0
+  restart: unless-stopped
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${POSTGRES_DB}
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+    AIRFLOW__CORE__LOAD_EXAMPLES: "true"
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+    # api-server URL used by scheduler/tasks for Task Execution Interface (Airflow 3)
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-api-server:8080/execution/
+    # Secret key moved from [webserver] to [api] in Airflow 3
+    AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+    AIRFLOW__API__AUTH__JWT_SECRET: ${AIRFLOW_SECRET_KEY}
+    AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
+    AIRFLOW_VAR_ENVIRONMENT: local
+  volumes:
+    - dags:/opt/airflow/dags
+    - logs:/opt/airflow/logs
+    - plugins:/opt/airflow/plugins
+  depends_on: &airflow-common-depends
+    postgres:
+      condition: service_healthy
+
+x-airflow-healthcheck: &airflow-healthcheck
+  interval: 30s
+  timeout: 10s
+  retries: 5
+  start_period: 45s
+
+# Fluentd logging driver — applied to every airflow service.
+# fluentd-async: "true" means containers start even if fluentd
+# is temporarily unreachable; logs buffer locally until reconnect.
+x-airflow-logging: &airflow-logging
+  driver: fluentd
+  options:
+    fluentd-address: "localhost:${FLUENTD_PORT:-24224}"
+    fluentd-async:   "true"
+    tag:             "airflow.{{.Name}}"   # e.g. airflow.airflow-scheduler-1
+
+# --------------- Services -----------------------------------
+services:
+
+  # -- One-shot: DB migration + admin user creation ----------
+  airflow-init:
+    <<: *airflow-common
+    profiles: [pipeline]
+    restart: no
+    command: >
+      bash -lc "airflow db migrate && airflow users create --username ${AIRFLOW_ADMIN_USER:-admin} --password ${AIRFLOW_ADMIN_PASSWORD:-admin} --firstname Admin --lastname User --role Admin --email ${AIRFLOW_ADMIN_EMAIL:-admin@example.com} || true"
+    healthcheck:
+      disable: true
+
+  # -- Scheduler: triggers DAG runs + executes tasks locally -
+  airflow-scheduler:
+    <<: *airflow-common
+    profiles: [pipeline]
+    command: scheduler
+    logging: *airflow-logging
+    depends_on:
+      <<: *airflow-common-depends
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob 2>&1 || exit 1"]
+      <<: *airflow-healthcheck
+
+  # -- API Server: UI (React) + REST API + Task Execution IF -
+  # Replaces `webserver` from Airflow 2. Run as: airflow api-server
+  airflow-api-server:
+    <<: *airflow-common
+    profiles: [pipeline]
+    command: api-server
+    logging: *airflow-logging
+    ports:
+      - "${AIRFLOW_API_SERVER_PORT:-8080}:8080"
+    depends_on:
+      <<: *airflow-common-depends
+      airflow-scheduler:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/version"]
+      <<: *airflow-healthcheck
+
+
+volumes:
+  dags:
+  logs:
+  plugins:

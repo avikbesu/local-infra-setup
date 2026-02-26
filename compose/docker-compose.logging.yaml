@@ -1,0 +1,53 @@
+# ============================================================
+# docker-compose.logging.yaml
+# Centralised log shipping via Fluentd.
+# Profile: logging
+#
+# Depends on: storage profile (MinIO must be running as the S3 sink)
+#
+# Start with:
+#   docker compose --profile storage --profile logging up -d
+#
+# Then start airflow (logging driver will connect to fluentd):
+#   docker compose --profile pipeline --profile query up -d
+#
+# IMPORTANT: Fluentd must be running BEFORE airflow services start,
+# because Docker's fluentd log driver will refuse to start a container
+# if it cannot reach fluentd — unless fluentd-async is set to "true"
+# (which it is, in docker-compose.pipeline.yaml logging options).
+# ============================================================
+
+services:
+  fluentd:
+    build:
+      context: ./fluentd
+      dockerfile: Dockerfile
+    image: fluentd-local:latest      # cached after first build
+    profiles: 
+      - logging
+      - pipeline
+    restart: unless-stopped
+    environment:
+      # Passed through to fluent.conf via Ruby ENV interpolation
+      MINIO_ROOT_USER:     ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_HOST:          minio
+      AIRFLOW_VAR_ENVIRONMENT: ${AIRFLOW_VAR_ENVIRONMENT:-local}
+    volumes:
+      - ./fluentd/fluent.conf:/fluentd/etc/fluent.conf:ro
+      - fluentd-buffer:/fluentd/buffer   # persistent buffer survives restarts
+    ports:
+      - "${FLUENTD_PORT:-24224}:24224"
+      - "${FLUENTD_PORT:-24224}:24224/udp"
+    depends_on:
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "echo '' | nc -w1 localhost 24224"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  fluentd-buffer:

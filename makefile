@@ -3,19 +3,29 @@
 #   make up                   → start via Docker Compose (default)
 #   make up USE_KIND=true     → provision kind cluster, then deploy
 #   make down                 → stop (compose or kind, auto-detected)
-#   make up ENV=prod          → compose prod overrides
+#   make up PROFILE=pipeline  → pipeline profile overrides
 # ============================================================
 
 ENV          ?= dev
 USE_KIND     ?= false
 CLUSTER_NAME ?= local-cluster
 KIND_CONFIG  ?= ../cluster/kind-config.yaml
-
+PROFILE      ?=  			# `PROFILE` may be a comma-separated list (e.g. PROFILE=db,storage). Default: db
 
 # ── Compose setup ───────────────────────────────────────────
-COMPOSE_BASE  = docker-compose.yml
-COMPOSE_ENV   = docker-compose.$(if $(filter prod,$(ENV)),prod,$(if $(filter ci,$(ENV)),ci,override)).yml
-DC            = docker compose -f ./compose/$(COMPOSE_BASE) -f ./compose/$(COMPOSE_ENV)
+
+# Gather all docker-compose files in ./compose; ensure the base file is first
+# and, if present, append docker-compose.override.yml last so overrides apply.
+COMPOSE_GLOB := $(wildcard ./compose/docker-compose*.yaml)
+COMPOSE_FILE_LIST := $(COMPOSE_GLOB) 
+
+# Build profile flags for `docker compose` (e.g. --profile db --profile storage)
+# Only produce flags when PROFILES is non-empty
+PROFILES := $(strip $(shell echo $(PROFILE) | tr ',' ' '))
+PROFILE_FLAGS := $(shell for p in $(PROFILES); do if [ -n "$$p" ]; then printf -- '--profile %s ' "$$p"; fi; done)
+
+# Build `DC` by prefixing each file with `-f` so Docker Compose sees them in order
+DC := docker compose $(PROFILE_FLAGS) $(foreach f,$(COMPOSE_FILE_LIST),-f $(f))
 
 .PHONY: help up down build restart logs shell ps clean prune lint health smoke-test \
         kind-up kind-down kind-status compose-up compose-down
