@@ -19,7 +19,7 @@
 
 # --------------- Airflow shared anchors ---------------------
 x-airflow-common: &airflow-common
-  image: apache/airflow:3.0.0
+  image: apache/airflow:3.1.7
   restart: unless-stopped
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor

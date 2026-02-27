@@ -1,2 +1,6 @@
+# ── Compose chart output ─────────────────────────────────────
 /*/chart/*
 **/logs/**
+
+# ── Local secrets — never commit ─────────────────────────────
+.env.local
