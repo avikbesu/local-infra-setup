@@ -199,8 +199,8 @@ def validate(config: Any, config_path: str) -> list[dict]:
 
     if errors:
         print(
-            f"\n❌  Schema validation failed — {len(errors)} error(s) "
-            f"in {config_path}:\n",
+            f"❌  Schema validation failed — {len(errors)} error(s) "
+            f"in {config_path}:",
             file=sys.stderr,
         )
         for i, err in enumerate(errors, 1):
@@ -266,7 +266,7 @@ def bootstrap(env_local: Path) -> None:
     """Create .env.local with a header comment if it does not exist."""
     if not env_local.exists():
         env_local.write_text(ENV_LOCAL_HEADER, encoding="utf-8")
-        print(f"\n📄  Created {env_local}")
+        print(f"📄  Created {env_local}")
 
 
 def read_existing_keys(env_local: Path) -> set[str]:
@@ -341,8 +341,8 @@ def main() -> None:
     existing = read_existing_keys(env_local)
 
     print(
-        f"\n🔐  Checking secrets in {env_local}  "
-        f"(config: {config_path})...\n"
+        f"🔐  Checking secrets in {env_local}  "
+        f"(config: {config_path})..."
     )
 
     written: list[str] = []
@@ -361,7 +361,7 @@ def main() -> None:
         print(f"   ✔  {key:<35}  [{entry['method']}]")
 
     # ── Summary ───────────────────────────────────────────────────────────────
-    print()
+
     if written:
         print(f"✅  {len(written)} secret(s) written to {env_local}")
         if skipped:
@@ -369,16 +369,16 @@ def main() -> None:
                 f"⏭️   {len(skipped)} already present — skipped "
                 f"({', '.join(skipped)})"
             )
-        print(f"\n   Review:  cat {env_local}\n")
+        print(f"   Review:  cat {env_local}")
     else:
         print(
             f"✅  All {len(skipped)} secret(s) already present in "
-            f"{env_local} — nothing changed.\n"
+            f"{env_local} — nothing changed."
         )
 
 
 def _die(msg: str) -> None:
-    print(f"\n❌  {msg}\n", file=sys.stderr)
+    print(f"❌  {msg}", file=sys.stderr)
     sys.exit(1)
 
 

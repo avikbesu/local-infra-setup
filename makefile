@@ -55,6 +55,10 @@ help: ## Show this help
 	@echo "    make up PROFILE=pipeline  # pipeline profile overrides"
 	@echo ""
 
+# ── Explicit secrets target (re-run gen at any time) ────────
+secrets: ## Generate missing secrets into .env.local
+	@bash scripts/gen-secrets.sh
+
 # ── .env bootstrap ────────────────────────────────────
 # .env.local holds secrets and local overrides (git-ignored).
 # The script is idempotent: it only writes keys that are absent.
