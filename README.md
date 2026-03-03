@@ -2,15 +2,16 @@
 
 A modular Docker Compose–based local data engineering platform covering object storage, distributed SQL, workflow orchestration, and centralised log shipping.
 
----
 
-## Table of Contents
-
-- [Overview](#overview)
-- [Docker Compose](#docker-compose)
-  - [Container Dependency Diagram](#container-dependency-diagram)
-  - [Compose Files](#compose-files)
+- [Local Infrastructure Setup](#local-infrastructure-setup)
+  - [Overview](#overview)
   - [Quick Start](#quick-start)
+    - [Setup](#setup)
+    - [Git Submodule Guide](#git-submodule-guide)
+  - [Docker Compose](#docker-compose)
+    - [Container Dependency Diagram](#container-dependency-diagram)
+    - [Compose Files](#compose-files)
+    - [Quick Start](#quick-start-1)
 
 ---
 
@@ -23,6 +24,46 @@ A modular Docker Compose–based local data engineering platform covering object
 | Query Engine | Trino | Distributed SQL over Iceberg tables |
 | Orchestration | Apache Airflow 3 | DAG-based workflow scheduling |
 | Log Shipping | Fluentd | Centralised log aggregation → MinIO |
+
+---
+
+## Quick Start
+
+### Setup
+
+```bash
+git clone --recurse-submodules https://github.com/avikbesu/local-infra-setup.git
+```
+
+### Git Submodule Guide
+1. Add new submodule at a specified path
+```bash
+# Add airflow3-by-example as a submodule at path `dags/`
+git submodule add -b main git@github.com:avikbesu/airflow3-by-example.git dags
+git submodule update --init --recursive
+```
+2. Pull latest changes for a git submodule
+```bash
+# Pull latest DAGs from airflow3-by-example after updates
+git submodule update --remote dags
+```
+
+This auto-creates .gitmodules at repo root. After running, your structure will be:
+```
+local-infra-setup/
+├── dags/                          ← submodule (airflow3-by-example)
+│   └── example/
+│       └── dags/                  ← actual DAGs folder mounted into Airflow
+│           ├── a_basics/
+│           ├── b_taskflow/
+│           ├── c_operators/
+│           ├── d_dynamic_workflows/
+│           ├── example_dag.py
+│           └── example_taskflow.py
+├── compose/
+│   └── docker-compose.pipeline.yaml
+└── .gitmodules                    ← auto-created
+```
 
 ---
 

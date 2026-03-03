@@ -120,6 +120,9 @@ prune: ## Remove ALL unused Docker resources — ⚠️  dangerous
 lint: ## Validate compose config syntax
 	$(DC) config --quiet && echo "✅ Compose config is valid"
 
+sync: ## Perform git submodule sync
+	git submodule update --remote dags
+
 # ── Kind cluster targets ─────────────────────────────────────
 kind-up: # (internal) Provision kind cluster and deploy stack
 	@bash scripts/kind-deploy.sh up $(CLUSTER_NAME) $(KIND_CONFIG)
