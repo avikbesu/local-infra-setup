@@ -123,6 +123,11 @@ lint: ## Validate compose config syntax
 sync: ## Perform git submodule sync
 	git submodule update --remote dags
 
+# ── Application Specific Commands ────────────────────────────
+dagcheck: ## Airflow Dags Check Custom Command
+	@echo "Checking DAGs for errors..."
+	$(DC) exec -w /opt/airflow airflow-scheduler python3 scripts/infra/check_dags.py
+
 # ── Kind cluster targets ─────────────────────────────────────
 kind-up: # (internal) Provision kind cluster and deploy stack
 	@bash scripts/kind-deploy.sh up $(CLUSTER_NAME) $(KIND_CONFIG)

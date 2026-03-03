@@ -124,7 +124,6 @@ flowchart TD
 
 | File | Profile(s) | Services |
 |------|-----------|---------|
-| `docker-compose.yml` | _(default / core iceberg stack)_ | `minio`, `minio-init`, `postgres`, `iceberg-rest`, `trino` |
 | `docker-compose.storage.yaml` | `storage`, `pipeline` | `minio`, `minio-init` |
 | `docker-compose.db.yaml` | `db`, `pipeline`, `query` | `postgres` |
 | `docker-compose.logging.yaml` | `logging`, `pipeline` | `fluentd` |

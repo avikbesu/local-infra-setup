@@ -36,8 +36,15 @@ x-airflow-common: &airflow-common
     AIRFLOW_VAR_ENVIRONMENT: local
   volumes:
     - ${PWD}/dags/example/dags:/opt/airflow/dags:ro
-    - logs:/opt/airflow/logs
-    - plugins:/opt/airflow/plugins
+    - ${PWD}/compose/logs/airflow:/opt/airflow/logs:rw
+    - ${PWD}/compose/plugins:/opt/airflow/plugins
+    - ${PWD}/scripts:/opt/airflow/scripts/infra
+  # logging: &airflow-logging
+  #   driver: fluentd
+  #   options:
+  #     fluentd-address: "localhost:${FLUENTD_PORT:-24224}"
+  #     fluentd-async:   "true"
+  #     tag:             "airflow.{{.Name}}"   # e.g. airflow.airflow-scheduler-1
   depends_on: &airflow-common-depends
     postgres:
       condition: service_healthy
@@ -51,12 +58,12 @@ x-airflow-healthcheck: &airflow-healthcheck
 # Fluentd logging driver — applied to every airflow service.
 # fluentd-async: "true" means containers start even if fluentd
 # is temporarily unreachable; logs buffer locally until reconnect.
-x-airflow-logging: &airflow-logging
-  driver: fluentd
-  options:
-    fluentd-address: "localhost:${FLUENTD_PORT:-24224}"
-    fluentd-async:   "true"
-    tag:             "airflow.{{.Name}}"   # e.g. airflow.airflow-scheduler-1
+# x-airflow-logging: &airflow-logging
+#   driver: fluentd
+#   options:
+#     fluentd-address: "localhost:${FLUENTD_PORT:-24224}"
+#     fluentd-async:   "true"
+#     tag:             "airflow.{{.Name}}"   # e.g. airflow.airflow-scheduler-1
 
 # --------------- Services -----------------------------------
 services:
@@ -76,7 +83,6 @@ services:
     <<: *airflow-common
     profiles: [pipeline]
     command: scheduler
-    logging: *airflow-logging
     depends_on:
       <<: *airflow-common-depends
       airflow-init:
@@ -91,7 +97,6 @@ services:
     <<: *airflow-common
     profiles: [pipeline]
     command: api-server
-    logging: *airflow-logging
     ports:
       - "${AIRFLOW_API_SERVER_PORT:-8080}:8080"
     depends_on:
@@ -129,5 +134,5 @@ services:
         condition: service_completed_successfully
 
 volumes:
-  logs:
+  # logs:
   plugins:

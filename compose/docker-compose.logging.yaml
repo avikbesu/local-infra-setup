@@ -25,7 +25,7 @@ services:
     image: fluentd-local:latest      # cached after first build
     profiles: 
       - logging
-      - pipeline
+      # - pipeline  # logging is failing for airflow
     restart: unless-stopped
     environment:
       # Passed through to fluent.conf via Ruby ENV interpolation
