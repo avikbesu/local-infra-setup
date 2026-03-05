@@ -2,19 +2,28 @@
 # docker-compose.db.yaml
 # Database services — start with profile: db
 #   docker compose --profile db up
+#
+# Services:
+#   postgres       — persistent Postgres instance
+#   postgres-init  — one-shot: runs config/postgres/init.sql after
+#                    postgres is healthy. Creates any databases that
+#                    don't exist yet (e.g. the `iceberg` catalog DB).
+#                    Safe to re-run — all statements are idempotent.
 # ============================================================
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:${POSTGRES_VERSION:-16-alpine}
     profiles: [db, pipeline, query]   # auto-started by dependent profiles
+    container_name: postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-airflow}
+      POSTGRES_USER:     ${POSTGRES_USER:-airflow}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
-      POSTGRES_DB: ${POSTGRES_DB:-airflow}
+      POSTGRES_DB:       ${POSTGRES_DB:-airflow}
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ${BASE_DIR}/../config/postgres:/opt/init/sql:rw
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
@@ -23,6 +32,37 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  # ── One-shot DB provisioner ───────────────────────────────
+  # Runs every SQL file in config/postgres/ that matches [0-9]*.sql,
+  # in filename-sorted order (1-databases.sql, 2-extensions.sql, …).
+  # Uses psql -f (file mode) per script — no shell pipes or quoting issues.
+  #
+  # To add a new init step: drop a file named N-description.sql into
+  # config/postgres/ and it will be picked up on the next `make up`.
+  # All scripts must be idempotent (IF NOT EXISTS, CREATE OR REPLACE, etc.)
+  #
+  # Downstream services that need a specific database must declare:
+  #   depends_on:
+  #     postgres-init:
+  #       condition: service_completed_successfully
+  postgres-init:
+    image: postgres:${POSTGRES_VERSION:-16-alpine}
+    profiles: [db, pipeline, query]
+    restart: no
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+    volumes:
+      - ${BASE_DIR}/../config/postgres:/opt/init:rw
+    # set -e aborts on the first failing script so errors are never silently swallowed.
+    entrypoint: 
+      - bash
+      - -ec
+      - /opt/init/setup.sh
 
 volumes:
   postgres-data:
