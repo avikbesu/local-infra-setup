@@ -1,0 +1,41 @@
+# ============================================================
+# PostgreSQL — Helm Chart Values  (bitnami/postgresql)
+# Namespace: db
+# Accessed by Airflow as: postgres.db.svc.cluster.local:5432
+# ============================================================
+
+auth:
+  username: airflow
+  password: airflow
+  database: airflow
+  # Also create a superuser for admin tasks
+  postgresPassword: postgres
+
+primary:
+  service:
+    type: ClusterIP
+    ports:
+      postgresql: 5432
+
+  persistence:
+    enabled: true
+    size: 2Gi
+    storageClass: standard
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+  # Expose as a predictable service name: postgres.db.svc.cluster.local
+  # The release name must be `postgres` when running:
+  #   helm install postgres bitnami/postgresql -n db -f helm/postgres/values.yaml
+
+readReplicas:
+  replicaCount: 0
+
+backup:
+  enabled: false

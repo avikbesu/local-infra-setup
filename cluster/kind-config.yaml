@@ -1,8 +1,31 @@
-# kind-cluster-config.yaml
+# ============================================================
+# Kind Cluster Configuration
+# Single control-plane node with:
+#   - hostPath mount for DAGs (./dags → /mnt/airflow-dags)
+#   - NodePort range exposed for optional direct access
+# ============================================================
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
+
+name: local-cluster
+
 nodes:
   - role: control-plane
+    # Expose NodePort range to localhost
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 30080
+        protocol: TCP
+        listenAddress: "127.0.0.1"
+      - containerPort: 30443
+        hostPort: 30443
+        protocol: TCP
+        listenAddress: "127.0.0.1"
+    # Mount host ./dags directory into the kind node so hostPath PVs work
+    # NOTE: `propagation` is intentionally omitted.
+    # HostToContainer (rslave) requires the host path's parent to be a *shared*
+    # mount — not the case on WSL2 where root is a private mount. The default
+    # (no field / private propagation) is sufficient for a local DAGs bind-mount.
     extraMounts:
-      - hostPath: "${PWD}/../airflow-dag-example/airflow-data/dags
-        containerPath: /mnt/kind-data/airflow/dags
+      - hostPath: ./dags
+        containerPath: /mnt/airflow-dags

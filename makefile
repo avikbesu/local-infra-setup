@@ -15,7 +15,19 @@ ENV          ?= dev
 USE_KIND     ?= false
 CLUSTER_NAME ?= local-cluster
 KIND_CONFIG  ?= ../cluster/kind-config.yaml
-PROFILE      ?=  			# comma-separated list, e.g. PROFILE=db,storage
+PROFILE      ?= * 			# comma-separated list, e.g. PROFILE=db,storage
+
+SHELL           := /bin/bash
+.DEFAULT_GOAL   := help
+
+SCRIPTS_DIR     := scripts
+KIND_CONFIG     := cluster/kind-config.yaml
+CLUSTER_NAME    := local-cluster
+HELM_COMPONENTS := cluster/helm-components.yaml
+
+# Export so scripts can inherit without re-reading
+export KIND_CLUSTER_NAME := $(CLUSTER_NAME)
+export HELM_COMPONENTS_CONFIG := $(CURDIR)/$(HELM_COMPONENTS)
 
 # ── Env files ────────────────────────────────────────────────
 # .env holds non-secret defaults; .env.local holds secrets and
@@ -30,8 +42,8 @@ COMPOSE_GLOB     := $(wildcard ./compose/docker-compose*.yaml)
 COMPOSE_FILE_LIST := $(COMPOSE_GLOB)
 
 # Build profile flags for `docker compose`
-PROFILES      := $(strip $(shell echo $(PROFILE) | tr ',' ' '))
-PROFILE_FLAGS := $(shell for p in $(PROFILES); do if [ -n "$$p" ]; then printf -- '--profile %s ' "$$p"; fi; done)
+PROFILES      := $(strip $(shell echo "$(PROFILE)" | tr ',' ' '))
+PROFILE_FLAGS := $(strip $(foreach p,$(PROFILES),$(if $(p),--profile "$(p)")))
 
 # Master compose command — env files + profiles + compose files
 DC := docker compose $(ENV_FILE_FLAGS) $(PROFILE_FLAGS) \
@@ -83,15 +95,10 @@ endif
 
 # ── Docker Compose targets ───────────────────────────────────
 compose-up: .env # (internal) Start via Docker Compose
-	@echo "🐳 Starting analytics stack via Docker Compose [ENV=$(ENV)]..."
+	@echo "🐳 Starting your application(s) via Docker Compose [PROFILE=$(PROFILE)]..."
 	$(DC) up -d --remove-orphans
 	@echo ""
-	@echo "🚀 Stack is up:"
-	@echo "   Trino UI          → http://localhost:$${TRINO_PORT:-8080}"
-	@echo "   Iceberg REST      → http://localhost:$${ICEBERG_REST_PORT:-8181}"
-	@echo "   MinIO Console     → http://localhost:$${MINIO_CONSOLE_PORT:-9001}"
-	@echo "   Postgres          → localhost:5432 (dev only)"
-	@echo ""
+	@echo "🚀 Stack is up"
 
 compose-down: ## (internal) Stop Docker Compose stack
 	$(DC) down
@@ -99,8 +106,11 @@ compose-down: ## (internal) Stop Docker Compose stack
 build: ## Pull latest images
 	$(DC) pull
 
-restart: ## Restart all Compose services
-	$(DC) restart
+restart: .env ## Restart all Compose services
+	$(DC) down
+	$(DC) up -d --remove-orphans
+	@echo ""
+	@echo "🚀 Stack is restarted"
 
 logs: ## Tail logs — make logs SERVICE=trino
 	$(DC) logs -f $(SERVICE)
@@ -128,6 +138,20 @@ dagcheck: ## Airflow Dags Check Custom Command
 	@echo "Checking DAGs for errors..."
 	$(DC) exec -w /opt/airflow airflow-scheduler python3 scripts/infra/check_dags.py
 
+query: .env ## Start query engine stack (Trino + Iceberg REST + Postgres + MinIO)
+	@echo "🔍 Starting query engine stack..."
+	docker compose $(ENV_FILE_FLAGS) \
+		--profile query --profile db --profile storage \
+		$(foreach f,$(COMPOSE_FILE_LIST),-f $(f)) \
+		up -d --remove-orphans 
+	@echo ""
+	@echo "🚀 Query stack is up:"
+	@echo "   Trino UI      → http://localhost:$${TRINO_PORT:-8080}"
+	@echo "   Iceberg REST  → http://localhost:$${ICEBERG_REST_PORT:-8181}"
+	@echo "   MinIO Console → http://localhost:$${MINIO_CONSOLE_PORT:-9001}"
+	@echo "   Postgres      → localhost:$${POSTGRES_PORT:-5432} (dev only)"
+	@echo ""
+
 # ── Kind cluster targets ─────────────────────────────────────
 kind-up: # (internal) Provision kind cluster and deploy stack
 	@bash scripts/kind-deploy.sh up $(CLUSTER_NAME) $(KIND_CONFIG)
@@ -143,3 +167,85 @@ health: ## Check health of all running services
 	@bash scripts/health-check.sh
 
 
+# =============================================================================
+##@ Setup
+# =============================================================================
+
+.PHONY: check-deps
+check-deps: ## Check required tools (add --install to auto-install)
+	@bash $(SCRIPTS_DIR)/check-deps.sh $(ARGS)
+
+.PHONY: helm-repos
+helm-repos: ## Add and update Helm repos for all enabled components
+	@bash $(SCRIPTS_DIR)/kube-helm-repos.sh
+
+# =============================================================================
+##@ Kubernetes — Cluster
+# =============================================================================
+
+.PHONY: kube-start
+kube-start: check-deps ## Create the local Kind cluster
+	@if kind get clusters 2>/dev/null | grep -qx "$(CLUSTER_NAME)"; then \
+	  echo "  ℹ Cluster '$(CLUSTER_NAME)' already running"; \
+	else \
+	  echo "  Creating cluster '$(CLUSTER_NAME)'..."; \
+	  kind create cluster --name $(CLUSTER_NAME) --config $(KIND_CONFIG); \
+	fi
+
+.PHONY: kube-stop
+kube-stop: ## Delete the Kind cluster (destroys all workloads)
+	kind delete cluster --name $(CLUSTER_NAME)
+
+# =============================================================================
+##@ Kubernetes — Helm Components
+# =============================================================================
+
+.PHONY: kube-deploy
+kube-deploy: kube-start helm-repos ## Deploy all enabled components (dependency-ordered)
+	@bash $(SCRIPTS_DIR)/kube-deploy.sh
+
+.PHONY: kube-deploy-one
+kube-deploy-one: kube-start helm-repos ## Deploy a single component  (COMPONENT=postgres)
+	@[[ -n "$(COMPONENT)" ]] || { echo "Usage: make kube-deploy-one COMPONENT=<n>"; exit 1; }
+	@bash $(SCRIPTS_DIR)/kube-deploy.sh $(COMPONENT)
+
+.PHONY: kube-remove
+kube-remove: ## Remove all enabled Helm releases (cluster kept)
+	@bash $(SCRIPTS_DIR)/kube-remove.sh
+
+.PHONY: kube-remove-one
+kube-remove-one: ## Remove a single Helm release  (COMPONENT=airflow)
+	@[[ -n "$(COMPONENT)" ]] || { echo "Usage: make kube-remove-one COMPONENT=<n>"; exit 1; }
+	@bash $(SCRIPTS_DIR)/kube-remove.sh $(COMPONENT)
+
+# =============================================================================
+##@ Kubernetes — Lifecycle Shortcuts
+# =============================================================================
+
+.PHONY: kube-up
+kube-up: kube-deploy ## Full bring-up: cluster + all enabled components
+	@echo ""
+	@echo "  🎉 Kube stack ready — run: make kube-port-forward"
+
+.PHONY: kube-down
+kube-down: kube-remove kube-stop ## Tear down releases then delete the cluster
+
+# =============================================================================
+##@ Kubernetes — Operations
+# =============================================================================
+
+.PHONY: kube-status
+kube-status: ## Show cluster, release, pod, and port-forward status
+	@bash $(SCRIPTS_DIR)/kube-status.sh
+
+.PHONY: kube-port-forward
+kube-port-forward: ## Start background port-forwards for all enabled components
+	@bash $(SCRIPTS_DIR)/kube-port-forward.sh
+
+.PHONY: kube-port-forward-stop
+kube-port-forward-stop: ## Kill all active kubectl port-forward processes
+	@bash $(SCRIPTS_DIR)/kube-port-forward.sh stop
+
+.PHONY: kube-port-forward-status
+kube-port-forward-status: ## List running port-forward processes
+	@bash $(SCRIPTS_DIR)/kube-port-forward.sh status

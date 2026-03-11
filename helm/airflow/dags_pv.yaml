@@ -1,16 +1,27 @@
+# ============================================================
+# Airflow DAGs — PersistentVolume
+# Uses a hostPath backed by a kind extraMount so the host
+# directory ./dags (repo root) is visible inside the cluster.
+#
+# kind-config.yaml must include:
+#   extraMounts:
+#     - hostPath: ./dags
+#       containerPath: /mnt/airflow-dags
+# ============================================================
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: dags-pv
+  name: airflow-dags-pv
   labels:
-    type: local
+    app: airflow
+    component: dags
 spec:
   capacity:
     storage: 1Gi
   accessModes:
     - ReadWriteMany
   persistentVolumeReclaimPolicy: Retain
-  storageClassName: manual
+  storageClassName: standard
   hostPath:
-    path: /mnt/kind-data/airflow/dags # Path on the host machine
-    type: Directory
+    path: /mnt/airflow-dags
+    type: DirectoryOrCreate

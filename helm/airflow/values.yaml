@@ -1,24 +1,274 @@
+# ============================================================
+# Apache Airflow 3 — Helm Chart Values
+# Target: local kind cluster (single-node)
+# Executor: LocalExecutor (no Celery/Redis needed locally)
+# Metadata DB: Bundled PostgreSQL subchart (simplest for local dev)
+# DAGs: Mounted via PVC (airflow-dags-pvc)
+# ============================================================
 
-executor: "LocalKubernetesExecutor"
+airflowVersion: "3.1.0"
+defaultAirflowRepository: apache/airflow
+defaultAirflowTag: "3.1.0"
+defaultAirflowDigest: ""
 
-dags:
-  gitSync:
-    enabled: false
-  persistence:
-    enabled: true
-    existingClaim: dags-pvc
+# ── Executor ──────────────────────────────────────────────────
+# LocalExecutor is sufficient for a single-node kind cluster.
+# Switch to KubernetesExecutor if you want pod-per-task isolation.
+executor: "LocalExecutor"
 
+# ── Images ────────────────────────────────────────────────────
+images:
+  airflow:
+    repository: apache/airflow
+    tag: "3.1.0"
+    pullPolicy: IfNotPresent
+
+# ── Bundled PostgreSQL subchart ────────────────────────────────
+# Enabled for local dev — Airflow chart manages its own postgres pod.
+# No separate helm release or cross-namespace DNS needed.
+postgresql:
+  enabled: true
+  auth:
+    username: airflow
+    password: airflow
+    database: airflow
+  primary:
+    persistence:
+      enabled: true
+      size: 2Gi
+
+# ── Disable Celery components (not needed for LocalExecutor) ───
+redis:
+  enabled: false
+
+flower:
+  enabled: false
+
+workers:
+  replicas: 0
+
+triggerer:
+  enabled: true
+  replicas: 1
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  # ── Probe tuning ──────────────────────────────────────────────
+  # `airflow jobs check --job-type TriggererJob --local` can take 20-30s on a
+  # resource-constrained kind node.  The k8s default timeoutSeconds is 20s,
+  # which races the command and always loses → CrashLoopBackOff.
+  # Rules: timeoutSeconds must be > command wall-time; periodSeconds must be
+  # comfortably larger than timeoutSeconds so probes don't overlap.
+  livenessProbe:
+    initialDelaySeconds: 90   # wait for DB migrations + process startup
+    timeoutSeconds: 60        # command budget; kubelet kills after this
+    periodSeconds: 90         # gap between probe attempts
+    failureThreshold: 5       # ~7.5 min of grace before pod is restarted
+
+# ── DB Migration Job ──────────────────────────────────────────
+# FIX: useHelmHooks: false
+#   The default (true) registers this as a Helm pre-install/pre-upgrade hook.
+#   When postgres is slow to become ready the hook job fails; Helm then marks
+#   the entire release as failed and will not retry the job on the next
+#   `helm upgrade --install`, causing a permanent restart loop.
+#
+#   Setting false turns it into a plain Kubernetes Job deployed as part of
+#   the release. The scheduler and api-server already have init containers
+#   (waitForMigrations) that block until this Job succeeds, so ordering is
+#   preserved without relying on Helm hooks.
+migrateDatabaseJob:
+  enabled: true
+  useHelmHooks: false
+  jobAnnotations:
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+
+# ── Create Admin User Job ─────────────────────────────────────
+# Same hook problem as migrateDatabaseJob — disable hooks so it
+# runs as a regular Job after migration completes.
+createUserJob:
+  useHelmHooks: false
+  jobAnnotations:
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+
+# ── StatsD ────────────────────────────────────────────────────
+# Disabled — not needed for local development.
+# The default chart deploys a statsd-exporter sidecar + service that
+# consumes ~128 MB and adds noise to `kubectl get pods` output.
 statsd:
   enabled: false
 
+# ── DAGs — Persistent Volume Claim ────────────────────────────
+# dags_pv.yaml + dags_pvc.yaml must be applied before helm install.
+dags:
+  persistence:
+    enabled: true
+    existingClaim: airflow-dags-pvc
+    accessMode: ReadWriteMany
+  gitSync:
+    enabled: false
+
+# ── DAG Processor (Airflow 3.1 — separate dag-parsing process) ───────────────
+# Airflow 3.1 splits dag parsing out of the scheduler into a dedicated
+# dagProcessor pod. Without explicit probe settings it inherits the same
+# 20s default timeoutSeconds and hits the same timeout-race as the triggerer.
+dagProcessor:
+  enabled: true
+  replicas: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  waitForMigrations:
+    enabled: true
+  livenessProbe:
+    initialDelaySeconds: 90
+    timeoutSeconds: 60
+    periodSeconds: 90
+    failureThreshold: 5
+
+# ── Scheduler ─────────────────────────────────────────────────
+scheduler:
+  replicas: 1
+  # waitForMigrations ensures the scheduler init container blocks until
+  # migrateDatabaseJob completes — works correctly with useHelmHooks: false.
+  waitForMigrations:
+    enabled: true
+  resources:
+    limits:
+      cpu: "1"
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+  livenessProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 60
+    failureThreshold: 5
+
+# ── API Server (Airflow 3 — replaces webserver) ───────────────
+apiServer:
+  replicas: 1
+  waitForMigrations:
+    enabled: true
+  resources:
+    limits:
+      cpu: 500m
+      memory: 768Mi
+    requests:
+      cpu: 250m
+      memory: 384Mi
+  service:
+    type: ClusterIP
+    ports:
+      - name: airflow-ui
+        port: 8080
+        targetPort: 8080
+
+# ── Web server secret (required) ─────────────────────────────
+# In production replace with a proper Kubernetes Secret.
+webserverSecretKey: "local-kind-secret-changeme"
+
+# ── Logs ──────────────────────────────────────────────────────
+logs:
+  persistence:
+    enabled: false   # ephemeral logs in local dev; Fluentd handles shipping
+
+# ── Log Groomer ───────────────────────────────────────────────
+# Only useful when logs.persistence.enabled: true (shared log PVC).
+# With ephemeral logs there is nothing to groom — disable to save pod slots.
+logGroomer:
+  enabled: false
+
+# ── RBAC ──────────────────────────────────────────────────────
+# The chart's built-in role covers pods but not jobs.batch.
+# KubernetesPodOperator (and the task runner) need to create/manage
+# batch Jobs in the airflow namespace — granted below via extraObjects.
+rbac:
+  create: true
+  createSCCRoleBinding: false
+
+# ── Service Account ───────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: airflow
+
+# ── Extra RBAC — batch Job permissions ────────────────────────
+# Injected as part of the Helm release so no separate kubectl apply needed.
+# Grants airflow-scheduler (and airflow-worker if ever enabled) the ability
+# to create/get/list/watch/delete batch Jobs and Pods in this namespace,
+# which is required for KubernetesPodOperator task execution.
+extraObjects:
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      name: airflow-batch-role
+      namespace: airflow
+    rules:
+      - apiGroups: ["batch"]
+        resources: ["jobs"]
+        verbs: ["create", "get", "list", "watch", "delete", "patch", "update"]
+      - apiGroups: [""]
+        resources: ["pods"]
+        verbs: ["create", "get", "list", "watch", "delete", "patch", "update"]
+      - apiGroups: [""]
+        resources: ["pods/log"]
+        verbs: ["get", "list"]
+      - apiGroups: [""]
+        resources: ["pods/exec"]
+        verbs: ["create", "get"]
+      - apiGroups: [""]
+        resources: ["events"]
+        verbs: ["get", "list"]
+
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: airflow-batch-rolebinding
+      namespace: airflow
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: airflow-batch-role
+    subjects:
+      - kind: ServiceAccount
+        name: airflow-scheduler
+        namespace: airflow
+      - kind: ServiceAccount
+        name: airflow-worker
+        namespace: airflow
+
+# ── Ingress (disabled — use port-forward locally) ─────────────
+ingress:
+  web:
+    enabled: false
+  flower:
+    enabled: false
+
+# ── Extra Env Vars ────────────────────────────────────────────
 env:
-  - name: AIRFLOW__WEBSERVER__SHOW_TRIGGER_FORM_IF_NO_PARMS
-    value: "True"
   - name: AIRFLOW__CORE__LOAD_EXAMPLES
-    value: "True"
-  - name: AIRFLOW__CORE__LOGGING_LEVEL
+    value: "False"
+  - name: AIRFLOW__CORE__FERNET_KEY
+    value: ""   # auto-generated if empty
+  - name: AIRFLOW__LOGGING__LOGGING_LEVEL
     value: "INFO"
-  - name: AIRFLOW__WEBSERVER__SHOW_TRIGGER_FORM_IF_NO_PARAMS
+  - name: AIRFLOW__API__AUTH_BACKENDS
+    value: "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
+  # ── KubernetesPodOperator log capture ─────────────────────────
+  # Keep failed pods alive so Airflow can finish streaming their logs before
+  # the pod is reaped.  Without this, fast-failing containers are deleted
+  # before the log-stream loop completes → task shows no output.
+  - name: AIRFLOW__KUBERNETES__DELETE_WORKER_PODS_ON_FAILURE
+    value: "False"
+  # Emit k8s Warning events into the Airflow task log when a pod fails.
+  # Captures OOMKilled / ImagePullBackOff reasons that appear in events
+  # but never reach stdout — the only signal when a container exits at init.
+  - name: AIRFLOW__KUBERNETES__LOG_EVENTS_ON_FAILURE
     value: "True"
-  - name: AIRFLOW_VAR_ENVIRONMENT
-    value: "local"

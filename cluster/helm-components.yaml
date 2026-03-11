@@ -1,0 +1,70 @@
+# =============================================================================
+# Helm Component Registry
+# All Kubernetes / Helm-based components for the local kind cluster.
+#
+# Fields per component:
+#   name          — Helm release name (also used as dependency key)
+#   chart         — <repo>/<chart-name>
+#   helm_repo     — Helm repo alias
+#   helm_repo_url — URL passed to `helm repo add`
+#   namespace     — Kubernetes namespace to deploy into
+#   values_file   — Path to values.yaml (relative to repo root)
+#   wait_timeout  — Helm --wait --timeout value  (e.g. "5m", "10m")
+#   depends_on    — List of component names that must be deployed first
+#   pre_manifests — Kubectl manifests to apply BEFORE `helm install`
+#   port_forward  — List of {service, local_port, remote_port} entries
+#   enabled       — true | false  (only enabled components are acted on)
+# =============================================================================
+
+components:
+
+  # ---------------------------------------------------------------------------
+  - name: postgres
+    chart: bitnami/postgresql
+    helm_repo: bitnami
+    helm_repo_url: https://charts.bitnami.com/bitnami
+    namespace: db
+    values_file: helm/postgres/values.yaml
+    wait_timeout: "5m"
+    depends_on: []
+    pre_manifests: []
+    port_forward: []
+    enabled: false
+
+  # ---------------------------------------------------------------------------
+  - name: airflow
+    chart: apache-airflow/airflow
+    helm_repo: apache-airflow
+    helm_repo_url: https://airflow.apache.org
+    namespace: airflow
+    values_file: helm/airflow/values.yaml
+    wait_timeout: "15m"
+    depends_on:
+      - postgres
+    pre_manifests:
+      - helm/airflow/dags_pv.yaml
+      - helm/airflow/dags_pvc.yaml
+    port_forward:
+      - service: airflow-api-server
+        local_port: 8080
+        remote_port: 8080
+    enabled: true
+
+  # ---------------------------------------------------------------------------
+  - name: minio
+    chart: minio/minio
+    helm_repo: minio
+    helm_repo_url: https://charts.min.io/
+    namespace: minio
+    values_file: helm/minio/values.yaml
+    wait_timeout: "5m"
+    depends_on: []
+    pre_manifests: []
+    port_forward:
+      - service: minio-console
+        local_port: 9001
+        remote_port: 9001
+      - service: minio
+        local_port: 9000
+        remote_port: 9000
+    enabled: false
