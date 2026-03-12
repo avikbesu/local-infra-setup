@@ -28,7 +28,7 @@ if [[ "$count" -eq 0 ]]; then
 fi
 
 # Reverse topological order for clean teardown
-ordered_indices=$(topo_sort_indices | tail -r 2>/dev/null || topo_sort_indices | tac)
+ordered_indices=$(topo_sort_indices | tac)
 
 removed=0
 
@@ -42,7 +42,7 @@ for idx in $ordered_indices; do
     log_info "Uninstalling: ${BOLD}$name${RESET} (ns: $namespace)..."
     helm uninstall "$name" -n "$namespace"
     log_ok "  ✓ $name removed"
-    ((removed++))
+    removed=$(( removed + 1 ))
   else
     log_info "  $name — not installed, skipping."
   fi

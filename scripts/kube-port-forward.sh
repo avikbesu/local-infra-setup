@@ -63,7 +63,7 @@ for i in $(seq 0 $((count - 1))); do
       -n "$namespace" &>/dev/null &
     local_pid=$!
     log_ok "  Started (PID $local_pid) → http://localhost:${local_port}"
-    ((started++))
+    started=$(( started + 1 ))
 
   done < <(component_port_forwards "$name")
 done

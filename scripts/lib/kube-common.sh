@@ -119,7 +119,7 @@ topo_sort_indices() {
     for dep in ${deps[$i]}; do
       # Only count deps that are also in the enabled set
       for j in $(seq 0 $((count - 1))); do
-        [[ "${names[$j]}" == "$dep" ]] && ((d++)) && break
+        [[ "${names[$j]}" == "$dep" ]] && { d=$(( d + 1 )); break; }
       done
     done
     in_degree[$i]=$d
@@ -138,7 +138,7 @@ topo_sort_indices() {
     for i in $(seq 0 $((count - 1))); do
       for dep in ${deps[$i]}; do
         if [[ "$dep" == "${names[$cur]}" ]]; then
-          ((in_degree[$i]--))
+          in_degree[$i]=$(( in_degree[$i] - 1 ))
           [[ "${in_degree[$i]}" -eq 0 ]] && queue+=("$i")
         fi
       done

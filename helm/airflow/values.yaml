@@ -212,7 +212,7 @@ extraObjects:
       namespace: airflow
     rules:
       - apiGroups: ["batch"]
-        resources: ["jobs"]
+        resources: ["jobs", "jobs/status"]
         verbs: ["create", "get", "list", "watch", "delete", "patch", "update"]
       - apiGroups: [""]
         resources: ["pods"]
@@ -237,11 +237,12 @@ extraObjects:
       kind: Role
       name: airflow-batch-role
     subjects:
+      # The chart creates a single SA whose name comes from serviceAccount.name
+      # above — "airflow".  The scheduler, triggerer and dag-processor all run
+      # under this one SA; there is no separate "airflow-scheduler" SA unless
+      # you set scheduler.serviceAccount.name explicitly.
       - kind: ServiceAccount
-        name: airflow-scheduler
-        namespace: airflow
-      - kind: ServiceAccount
-        name: airflow-worker
+        name: airflow
         namespace: airflow
 
 # ── Ingress (disabled — use port-forward locally) ─────────────
