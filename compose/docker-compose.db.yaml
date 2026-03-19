@@ -14,7 +14,10 @@
 services:
   postgres:
     image: postgres:${POSTGRES_VERSION:-16-alpine}
-    profiles: [db, pipeline, query]   # auto-started by dependent profiles
+    profiles: 
+      - "db"
+      - "pipeline"
+      - "query"
     container_name: postgres
     restart: unless-stopped
     environment:
@@ -48,7 +51,10 @@ services:
   #       condition: service_completed_successfully
   postgres-init:
     image: postgres:${POSTGRES_VERSION:-16-alpine}
-    profiles: [db, pipeline, query]
+    profiles: 
+      - "db"
+      # - "pipeline"
+      - "query"
     restart: no
     depends_on:
       postgres:

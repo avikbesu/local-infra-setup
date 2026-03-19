@@ -9,7 +9,7 @@ services:
     image: minio/minio:latest
     profiles: 
       - storage
-      - pipeline
+      # - pipeline
     restart: unless-stopped
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
@@ -32,7 +32,7 @@ services:
     image: minio/mc:latest
     profiles:
       - storage
-      - pipeline
+      # - pipeline
     restart: no
     depends_on:
       minio:

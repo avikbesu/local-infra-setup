@@ -21,6 +21,7 @@
 x-airflow-common: &airflow-common
   image: apache/airflow:3.1.7
   restart: unless-stopped
+  profiles: [pipeline]
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${POSTGRES_DB}
@@ -29,9 +30,11 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
     # api-server URL used by scheduler/tasks for Task Execution Interface (Airflow 3)
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-api-server:8080/execution/
+    # ── TEI internal auth — THIS is what task subprocesses use ──
+    AIRFLOW__CORE__INTERNAL_API_SECRET_KEY: ${AIRFLOW_SECRET_KEY}
     # Secret key moved from [webserver] to [api] in Airflow 3
     AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
-    AIRFLOW__API__AUTH__JWT_SECRET: ${AIRFLOW_SECRET_KEY}
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_SECRET_KEY}   # ← was AIRFLOW__API__AUTH__JWT_SECRET (wrong)
     AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
     AIRFLOW_VAR_ENVIRONMENT: local
   volumes:
@@ -71,7 +74,6 @@ services:
   # -- One-shot: DB migration + admin user creation ----------
   airflow-init:
     <<: *airflow-common
-    profiles: [pipeline]
     restart: no
     command: >
       bash -lc "airflow db migrate && airflow users create --username ${AIRFLOW_ADMIN_USER:-admin} --password ${AIRFLOW_ADMIN_PASSWORD:-admin} --firstname Admin --lastname User --role Admin --email ${AIRFLOW_ADMIN_EMAIL:-admin@example.com} || true"
@@ -81,12 +83,13 @@ services:
   # -- Scheduler: triggers DAG runs + executes tasks locally -
   airflow-scheduler:
     <<: *airflow-common
-    profiles: [pipeline]
     command: scheduler
     depends_on:
       <<: *airflow-common-depends
       airflow-init:
         condition: service_completed_successfully
+      airflow-api-server:          # ← scheduler needs TEI to be reachable
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob 2>&1 || exit 1"]
       <<: *airflow-healthcheck
@@ -95,21 +98,19 @@ services:
   # Replaces `webserver` from Airflow 2. Run as: airflow api-server
   airflow-api-server:
     <<: *airflow-common
-    profiles: [pipeline]
     command: api-server
     ports:
       - "${AIRFLOW_API_SERVER_PORT:-8080}:8080"
     depends_on:
       <<: *airflow-common-depends
-      airflow-scheduler:
-        condition: service_healthy
+      airflow-init:                # ← only needs DB to be migrated
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/version"]
       <<: *airflow-healthcheck
 
   airflow-dag-processor:
     <<: *airflow-common
-    profiles: [pipeline]
     command: dag-processor
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
@@ -122,7 +123,6 @@ services:
 
   airflow-triggerer:
     <<: *airflow-common
-    profiles: [pipeline]
     command: triggerer
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']

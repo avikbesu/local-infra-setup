@@ -42,7 +42,13 @@ git clone --recurse-submodules https://github.com/avikbesu/local-infra-setup.git
 git submodule add -b main git@github.com:avikbesu/airflow3-by-example.git dags
 git submodule update --init --recursive
 ```
-2. Pull latest changes for a git submodule
+2. Keep only dags folder
+```bash
+cd dags
+git sparse-checkout init --cone
+git sparse-checkout set  example/dags
+```
+3. *Pull latest changes for a git submodule*
 ```bash
 # Pull latest DAGs from airflow3-by-example after updates
 git submodule update --remote dags
