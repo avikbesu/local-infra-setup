@@ -25,7 +25,9 @@ KIND_CONFIG     := cluster/kind-config.yaml
 CLUSTER_NAME    := local-cluster
 HELM_COMPONENTS := cluster/helm-components.yaml
 
-ICEBERG_REST_VERSION ?= 1.6.0
+# ── Read ICEBERG_REST_VERSION from .env (no -include, avoids .env remake loop) ─
+ICEBERG_REST_VERSION := $(strip $(shell grep -s '^ICEBERG_REST_VERSION=' .env | cut -d= -f2))
+ICEBERG_REST_VERSION := $(if $(ICEBERG_REST_VERSION),$(ICEBERG_REST_VERSION),0.10.0)
 
 # Export so scripts can inherit without re-reading
 export KIND_CLUSTER_NAME := $(CLUSTER_NAME)
@@ -36,6 +38,14 @@ export HELM_COMPONENTS_CONFIG := $(CURDIR)/$(HELM_COMPONENTS)
 # local overrides. Both are passed to every docker compose call.
 # .env.local values take precedence (it is listed second).
 ENV_FILE_FLAGS := --env-file .env $(if $(wildcard .env.local),--env-file .env.local)
+
+# ── Load .env into Make's variable namespace ─────────────────
+# -include silently skips missing files (safe on first clone).
+# .env.local values win because it is included second.
+# These complement --env-file (which only reaches docker compose,
+# not Make targets like build-query).
+# -include .env
+# -include .env.local
 
 # ── Compose setup ───────────────────────────────────────────
 
@@ -140,11 +150,18 @@ dagcheck: ## Airflow Dags Check Custom Command
 	@echo "Checking DAGs for errors..."
 	$(DC) exec -w /opt/airflow airflow-scheduler python3 scripts/infra/check_dags.py
 
-build-query: ## Build custom iceberg-rest image (run once, or after logback.xml changes)
-	docker build \
-		--tag iceberg-rest-local:$${ICEBERG_REST_VERSION:-0.10.0} \
-		compose/iceberg-rest/
-	@echo "✅ iceberg-rest-local image built"
+build-query: ## Build custom iceberg-rest image (skips if already present)
+	@if docker image inspect iceberg-rest-local:$(ICEBERG_REST_VERSION) \
+	        >/dev/null 2>&1; then \
+	  echo "✅ iceberg-rest-local:$(ICEBERG_REST_VERSION) already exists — skipping build."; \
+	else \
+	  echo "🔨 Building iceberg-rest-local:$(ICEBERG_REST_VERSION)..."; \
+	  docker build \
+	    --build-arg ICEBERG_REST_VERSION=$(ICEBERG_REST_VERSION) \
+	    --tag iceberg-rest-local:$(ICEBERG_REST_VERSION) \
+	    compose/iceberg-rest/; \
+	  echo "✅ iceberg-rest-local:$(ICEBERG_REST_VERSION) built"; \
+	fi
 
 query: .env build-query ## Start query engine stack (Trino + Iceberg REST + Postgres + MinIO)
 	@echo "🔍 Starting query engine stack..."
@@ -161,14 +178,14 @@ query: .env build-query ## Start query engine stack (Trino + Iceberg REST + Post
 	@echo ""
 
 
-pipeline: .env build-query ## Start pipeline stack (Airflow + Postgres)
+pipeline: .env ## Start pipeline stack (Airflow + Postgres)
 	@echo "🔍 Starting pipeline stack..."
 	docker compose $(ENV_FILE_FLAGS) \
 		--profile pipeline \
 		$(foreach f,$(COMPOSE_FILE_LIST),-f $(f)) \
 		up -d --remove-orphans 
 	@echo ""
-	@echo "🚀 Query stack is up:"
+	@echo "🚀 Pipeline stack is up:"
 	@echo "   Airflow UI    → http://localhost:$${AIRFLOW_PORT:-8080}"
 	@echo "   Postgres      → localhost:$${POSTGRES_PORT:-5432} (dev only)"
 	@echo ""

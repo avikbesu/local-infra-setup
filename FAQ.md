@@ -62,7 +62,7 @@
       2) Configuration property 'query.max-total-memory-per-node' was not used
     ```
   - **Resolution**:  
-    - ???
+    - Removed that config for now.
 </details>
 
 

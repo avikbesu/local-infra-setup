@@ -7,8 +7,9 @@
 # WORKDIR must not be overridden — entrypoint resolves the jar
 # relative to /usr/lib/iceberg-rest (the base image WORKDIR).
 # ============================================================
-FROM tabulario/iceberg-rest:1.6.0
- 
+ARG ICEBERG_REST_VERSION=1.6.0
+FROM tabulario/iceberg-rest:${ICEBERG_REST_VERSION}
+
 # COPY logback.xml /logback.xml
 # ENV JAVA_TOOL_OPTIONS="-Dlogback.configurationFile=/logback.xml"
 
