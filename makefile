@@ -131,7 +131,7 @@ lint: ## Validate compose config syntax
 	$(DC) config --quiet && echo "✅ Compose config is valid"
 
 sync: ## Perform git submodule sync
-	git submodule update --remote dags
+	git submodule update --remote
 
 # ── Application Specific Commands ────────────────────────────
 dagcheck: ## Airflow Dags Check Custom Command

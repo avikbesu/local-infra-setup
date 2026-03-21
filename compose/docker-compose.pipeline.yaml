@@ -37,6 +37,10 @@ x-airflow-common: &airflow-common
     AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_SECRET_KEY}   # ← was AIRFLOW__API__AUTH__JWT_SECRET (wrong)
     AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
     AIRFLOW_VAR_ENVIRONMENT: local
+    # Creating connection
+    AIRFLOW_CONN_AIRFLOW_API: "http://${AIRFLOW_ADMIN_USER}:${AIRFLOW_ADMIN_PASSWORD}@airflow-webserver:8080"
+    AIRFLOW_VAR_EXEC_ENV: compose
+
   volumes:
     - ${PWD}/dags/example/dags:/opt/airflow/dags:ro
     - ${PWD}/compose/logs/airflow:/opt/airflow/logs:rw
@@ -134,5 +138,4 @@ services:
         condition: service_completed_successfully
 
 volumes:
-  # logs:
   plugins:
