@@ -160,6 +160,19 @@ query: .env build-query ## Start query engine stack (Trino + Iceberg REST + Post
 	@echo "   Postgres      → localhost:$${POSTGRES_PORT:-5432} (dev only)"
 	@echo ""
 
+
+pipeline: .env build-query ## Start pipeline stack (Airflow + Postgres)
+	@echo "🔍 Starting pipeline stack..."
+	docker compose $(ENV_FILE_FLAGS) \
+		--profile pipeline \
+		$(foreach f,$(COMPOSE_FILE_LIST),-f $(f)) \
+		up -d --remove-orphans 
+	@echo ""
+	@echo "🚀 Query stack is up:"
+	@echo "   Airflow UI    → http://localhost:$${AIRFLOW_PORT:-8080}"
+	@echo "   Postgres      → localhost:$${POSTGRES_PORT:-5432} (dev only)"
+	@echo ""
+
 # ── Kind cluster targets ─────────────────────────────────────
 kind-up: # (internal) Provision kind cluster and deploy stack
 	@bash scripts/kind-deploy.sh up $(CLUSTER_NAME) $(KIND_CONFIG)

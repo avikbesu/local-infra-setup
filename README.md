@@ -142,29 +142,16 @@ flowchart TD
 ### Quick Start
 
 ```bash
-# Full pipeline stack (storage + db + logging + airflow)
-docker compose \
-  -f compose/docker-compose.storage.yaml \
-  -f compose/docker-compose.db.yaml \
-  -f compose/docker-compose.logging.yaml \
-  -f compose/docker-compose.pipeline.yaml \
-  --profile pipeline up -d
+# Full pipeline stack (storage + db + logging + airflow + trino + iceberg-rest)
+make up
 
-# Query stack only (Trino + Iceberg REST + Postgres + MinIO)
+# Query engine stack only (Trino + Iceberg REST + Postgres + MinIO)
 make query
-# or manually:
-docker compose \
-  -f compose/docker-compose.storage.yaml \
-  -f compose/docker-compose.db.yaml \
-  -f compose/docker-compose.query.yaml \
-  --profile storage --profile db --profile query up -d
 
-# Core iceberg/trino stack only (docker-compose.yml)
-docker compose -f compose/docker-compose.yml up -d
+# Airflow only 
+make pipeline
+# or 
+make up PROFILE=pipeline
 
-# Storage + logging only
-docker compose \
-  -f compose/docker-compose.storage.yaml \
-  -f compose/docker-compose.logging.yaml \
-  --profile storage --profile logging up -d
+
 ```
