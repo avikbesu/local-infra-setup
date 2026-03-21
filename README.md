@@ -88,6 +88,7 @@ flowchart TD
 
     subgraph DB["🐘 Database Stack"]
         postgres["PostgreSQL\n:5432"]
+        postgres_init["postgres-init\none-shot DB provisioner"]
     end
 
     subgraph CATALOG["🧊 Catalog & Query Stack"]
@@ -108,14 +109,16 @@ flowchart TD
     minio          -- "healthy"    --> minio_init
     minio          -- "healthy"    --> fluentd
 
-    postgres       -- "healthy"    --> iceberg_rest
+    postgres       -- "healthy"    --> postgres_init
+    postgres       -- "healthy"    --> airflow_init
+    postgres       -- "healthy"    --> airflow_scheduler
+    postgres       -- "healthy"    --> airflow_api
+
+    postgres_init  -- "completed"  --> iceberg_rest
     minio_init     -- "completed"  --> iceberg_rest
     iceberg_rest   -- "healthy"    --> trino
 
-    postgres       -- "healthy"    --> airflow_init
-    postgres       -- "healthy"    --> airflow_scheduler
     airflow_init   -- "completed"  --> airflow_scheduler
-    postgres       -- "healthy"    --> airflow_api
     airflow_scheduler -- "healthy" --> airflow_api
 
     airflow_scheduler -. "log driver" .-> fluentd
@@ -131,8 +134,9 @@ flowchart TD
 | File | Profile(s) | Services |
 |------|-----------|---------|
 | `docker-compose.storage.yaml` | `storage`, `pipeline` | `minio`, `minio-init` |
-| `docker-compose.db.yaml` | `db`, `pipeline`, `query` | `postgres` |
+| `docker-compose.db.yaml` | `db`, `pipeline`, `query` | `postgres`, `postgres-init` |
 | `docker-compose.logging.yaml` | `logging`, `pipeline` | `fluentd` |
+| `docker-compose.query.yaml` | `query` | `iceberg-rest`, `trino` |
 | `docker-compose.pipeline.yaml` | `pipeline` | `airflow-init`, `airflow-scheduler`, `airflow-api-server` |
 
 ### Quick Start
@@ -145,6 +149,15 @@ docker compose \
   -f compose/docker-compose.logging.yaml \
   -f compose/docker-compose.pipeline.yaml \
   --profile pipeline up -d
+
+# Query stack only (Trino + Iceberg REST + Postgres + MinIO)
+make query
+# or manually:
+docker compose \
+  -f compose/docker-compose.storage.yaml \
+  -f compose/docker-compose.db.yaml \
+  -f compose/docker-compose.query.yaml \
+  --profile storage --profile db --profile query up -d
 
 # Core iceberg/trino stack only (docker-compose.yml)
 docker compose -f compose/docker-compose.yml up -d

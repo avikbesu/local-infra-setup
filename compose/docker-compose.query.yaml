@@ -1,0 +1,102 @@
+# ============================================================
+# docker-compose.query.yaml
+# Query engine stack — Iceberg REST Catalog + Trino.
+# Profile: query
+#
+# Depends on:
+#   --profile storage  → minio + minio-init (bucket creation)
+#   --profile db       → postgres + postgres-init (iceberg DB creation)
+#
+# Start with:
+#   make query
+# or manually:
+#   docker compose \
+#     -f compose/docker-compose.storage.yaml \
+#     -f compose/docker-compose.db.yaml \
+#     -f compose/docker-compose.query.yaml \
+#     --profile storage --profile db --profile query up -d
+#
+# Services:
+#   iceberg-rest  — Iceberg REST catalog (JDBC-backed by postgres.iceberg DB)
+#   trino         — Distributed SQL engine over Iceberg tables via REST catalog
+# ============================================================
+
+services:
+
+  # ── Iceberg REST Catalog ──────────────────────────────────
+  # Persists catalog state in the `iceberg` Postgres database
+  # (created by postgres-init via config/postgres/sql/1-iceberg-setup.sql).
+  # Warehouse data lives in MinIO under s3://iceberg-warehouse/.
+  iceberg-rest:
+    build:
+      context: ./iceberg-rest
+      dockerfile: Dockerfile
+    image: iceberg-rest-local:${ICEBERG_REST_VERSION:-0.10.0}   # cached after first build
+    container_name: iceberg-rest
+    profiles: [query]
+    restart: unless-stopped
+    depends_on:
+      postgres-init:                        # iceberg DB must exist first
+        condition: service_completed_successfully
+      minio-init:                           # iceberg-warehouse bucket must exist
+        condition: service_completed_successfully
+    environment:
+      # ── JDBC catalog backend ────────────────────────────
+      CATALOG_CATALOG__IMPL:  org.apache.iceberg.jdbc.JdbcCatalog
+      CATALOG_URI:            jdbc:postgresql://postgres:5432/iceberg
+      CATALOG_JDBC_USER:      ${POSTGRES_USER:-airflow}
+      CATALOG_JDBC_PASSWORD:  ${POSTGRES_PASSWORD:-airflow}
+      # ── S3 warehouse (MinIO) ────────────────────────────
+      CATALOG_WAREHOUSE:              s3://${MINIO_DEFAULT_BUCKET:-iceberg-warehouse}/
+      CATALOG_IO__IMPL:               org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT:            http://minio:9000
+      CATALOG_S3_PATH__STYLE__ACCESS: "true"
+      AWS_ACCESS_KEY_ID:              ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY:          ${MINIO_ROOT_PASSWORD:-minioadmin}
+      AWS_REGION:                     ${AWS_REGION:-us-east-1}
+      # ── Logging — suppress startup credential dump ──────
+      # RESTCatalogServer logs the full properties map (incl. passwords)
+      # at INFO on startup. This mounts a custom logback.xml that sets
+      # that logger to WARN, suppressing the credential line only.
+      # JAVA_TOOL_OPTIONS: "-Dlogback.configurationFile=/logback.xml"
+    # volumes:
+    #   - ./iceberg-rest/logback.xml:/opt/logback.xml:ro
+    ports:
+      - "${ICEBERG_REST_PORT:-8181}:8181"
+    healthcheck:
+      # Only bash is available in this image (no curl, wget, or nc).
+      # Must use CMD (exec form) — CMD-SHELL uses sh which lacks /dev/tcp.
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/8181"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ── Trino ─────────────────────────────────────────────────
+  # Distributed SQL coordinator (single-node, local dev).
+  # Catalog config at compose/trino/catalog/iceberg.properties
+  # uses ${ENV:VAR} substitution (supported since Trino 363).
+  trino:
+    image: trinodb/trino:${TRINO_VERSION:-435}
+    container_name: trino
+    profiles: [query]
+    restart: unless-stopped
+    depends_on:
+      iceberg-rest:
+        condition: service_healthy
+    environment:
+      # Passed through to catalog/iceberg.properties via ${ENV:VAR} substitution
+      AWS_ACCESS_KEY_ID:     ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      AWS_REGION:            ${AWS_REGION:-us-east-1}
+      MINIO_DEFAULT_BUCKET:  ${MINIO_DEFAULT_BUCKET:-iceberg-warehouse}
+    ports:
+      - "${TRINO_PORT:-8080}:8080"
+    volumes:
+      - ./trino:/etc/trino:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/info"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s

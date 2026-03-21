@@ -1,0 +1,21 @@
+# ============================================================
+# SLF4J SimpleLogger configuration
+# Placed on the classpath (WORKDIR /usr/lib/iceberg-rest) so
+# it is loaded by slf4j-simple before any class emits a log.
+# ============================================================
+
+# Default level for all loggers
+org.slf4j.simpleLogger.defaultLogLevel=info
+
+# Log format
+org.slf4j.simpleLogger.showDateTime=true
+org.slf4j.simpleLogger.dateTimeFormat=yyyy-MM-dd'T'HH:mm:ss.SSS
+org.slf4j.simpleLogger.showThreadName=false
+org.slf4j.simpleLogger.showLogName=true
+org.slf4j.simpleLogger.showShortLogName=false
+org.slf4j.simpleLogger.levelInBrackets=false
+
+# ── Suppress credential-dumping logger ───────────────────────
+# RESTCatalogServer.createCatalog() logs the full properties
+# map (incl. passwords) at INFO. Set to warn to suppress it.
+org.slf4j.simpleLogger.log.org.apache.iceberg.rest.RESTCatalogServer=warn

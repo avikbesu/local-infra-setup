@@ -27,7 +27,13 @@ services:
       retries: 3
       start_period: 10s
 
-  # One-shot container that creates default buckets on first run
+  # One-shot container that creates all required buckets on first run.
+  # Safe to re-run — mc mb --ignore-existing is idempotent.
+  #
+  # Buckets created:
+  #   airflow-logs          ← Fluentd S3 sink for Airflow container logs
+  #   airflow-data          ← General Airflow data / XCom storage
+  #   iceberg-warehouse     ← Iceberg REST catalog warehouse root
   minio-init:
     image: minio/mc:latest
     profiles:
@@ -42,6 +48,7 @@ services:
         mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin};
         mc mb --ignore-existing local/airflow-logs;
         mc mb --ignore-existing local/airflow-data;
+        mc mb --ignore-existing local/${MINIO_DEFAULT_BUCKET:-iceberg-warehouse};
         echo 'Buckets ready.';
       "
 
