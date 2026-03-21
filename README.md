@@ -35,25 +35,6 @@ A modular Docker Compose–based local data engineering platform covering object
 git clone --recurse-submodules https://github.com/avikbesu/local-infra-setup.git
 ```
 
-### Git Submodule Guide
-1. Add new submodule at a specified path
-```bash
-# Add airflow3-by-example as a submodule at path `dags/`
-git submodule add -b main git@github.com:avikbesu/airflow3-by-example.git dags
-git submodule update --init --recursive
-```
-2. Keep only dags folder
-```bash
-cd dags
-git sparse-checkout init --cone
-git sparse-checkout set  example/dags
-```
-3. *Pull latest changes for a git submodule*
-```bash
-# Pull latest DAGs from airflow3-by-example after updates
-git submodule update --remote dags
-```
-
 This auto-creates .gitmodules at repo root. After running, your structure will be:
 ```
 local-infra-setup/
@@ -70,6 +51,44 @@ local-infra-setup/
 │   └── docker-compose.pipeline.yaml
 └── .gitmodules                    ← auto-created
 ```
+
+### Git Submodule Guide
+
+<details>
+<summary> Git Submodule Use Cases</summary>
+
+  1. *Add new submodule at a specified path*
+        ```bash
+        # Add airflow3-by-example as a submodule at path `dags/`
+        git submodule add -b main git@github.com:avikbesu/airflow3-by-example.git dags
+        git submodule update --init --recursive
+        ```
+  2. *Keep only dags folder*
+        ```bash
+        cd dags
+        git sparse-checkout init --cone
+        git sparse-checkout set  example/dags
+        ```
+  3. *Pull latest changes for a git submodule*
+        ```bash
+        # Pull latest DAGs from airflow3-by-example after updates
+        git submodule update --remote dags
+        ```
+  4. **[Advanced Usage]**:*changes in dags folder and push the changes to remote repo* 
+        ```bash
+        cd dags
+        git checkout main
+        git pull origin main
+        # perform changes and commit them.
+        git push origin main
+        ```
+
+</details>
+
+
+
+
+
 
 ---
 

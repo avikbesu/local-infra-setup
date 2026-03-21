@@ -29,9 +29,9 @@
   - **Resolution**:  
     - Used entrypoint.sh to filter out logs.
     - Applied below, not resolved:
-      - added `logback.xml`
-      - added `logging.properties`
-      - added `simplelogger.properties`
+      - &#10008; added `logback.xml`
+      - &#10008; added `logging.properties`
+      - &#10008; added `simplelogger.properties`
 
 </details>
 
