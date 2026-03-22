@@ -64,9 +64,7 @@ services:
     ports:
       - "${ICEBERG_REST_PORT:-8181}:8181"
     healthcheck:
-      # Only bash is available in this image (no curl, wget, or nc).
-      # Must use CMD (exec form) — CMD-SHELL uses sh which lacks /dev/tcp.
-      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/8181"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8181/v1/config"]
       interval: 10s
       timeout: 10s
       retries: 10

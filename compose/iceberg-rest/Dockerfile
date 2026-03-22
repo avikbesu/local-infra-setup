@@ -10,6 +10,14 @@
 ARG ICEBERG_REST_VERSION=1.6.0
 FROM tabulario/iceberg-rest:${ICEBERG_REST_VERSION}
 
+USER root
+RUN apt-get update -qq \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+# restore original UID — check with: docker inspect tabulario/iceberg-rest:1.6.0 | grep User
+USER iceberg:iceberg   
+
+
 # COPY logback.xml /logback.xml
 # ENV JAVA_TOOL_OPTIONS="-Dlogback.configurationFile=/logback.xml"
 
