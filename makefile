@@ -20,6 +20,9 @@ PROFILE      ?= * 			# comma-separated list, e.g. PROFILE=db,storage
 SHELL           := /bin/bash
 .DEFAULT_GOAL   := help
 
+# ── Modular sub-makefiles ────────────────────────────────────
+include scripts/make/query.mk
+
 SCRIPTS_DIR     := scripts
 KIND_CONFIG     := cluster/kind-config.yaml
 CLUSTER_NAME    := local-cluster
@@ -38,14 +41,6 @@ export HELM_COMPONENTS_CONFIG := $(CURDIR)/$(HELM_COMPONENTS)
 # local overrides. Both are passed to every docker compose call.
 # .env.local values take precedence (it is listed second).
 ENV_FILE_FLAGS := --env-file .env $(if $(wildcard .env.local),--env-file .env.local)
-
-# ── Load .env into Make's variable namespace ─────────────────
-# -include silently skips missing files (safe on first clone).
-# .env.local values win because it is included second.
-# These complement --env-file (which only reaches docker compose,
-# not Make targets like build-query).
-# -include .env
-# -include .env.local
 
 # ── Compose setup ───────────────────────────────────────────
 
@@ -70,7 +65,7 @@ help: ## Show this help
 	@echo ""
 	@echo "  Usage: make <target> [USE_KIND=true] [ENV=dev|prod|ci]"
 	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+	@grep -Eh '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "  Examples:"
