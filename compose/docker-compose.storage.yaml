@@ -38,18 +38,20 @@ services:
     image: minio/mc:latest
     profiles:
       - storage
-      # - pipeline
     restart: no
     depends_on:
       minio:
         condition: service_healthy
+    environment:
+      MINIO_BUCKETS: ${MINIO_BUCKETS:-airflow-logs,airflow-data,iceberg-warehouse}
     entrypoint: >
       /bin/sh -c "
         mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin};
-        mc mb --ignore-existing local/airflow-logs;
-        mc mb --ignore-existing local/airflow-data;
-        mc mb --ignore-existing local/${MINIO_DEFAULT_BUCKET:-iceberg-warehouse};
-        echo 'Buckets ready.';
+        for bucket in $$(echo $$MINIO_BUCKETS | tr ',' ' '); do
+          mc mb --ignore-existing local/$$bucket;
+          echo \"  ✔ bucket ready: $$bucket\";
+        done;
+        echo 'All buckets ready.';
       "
 
 volumes:
