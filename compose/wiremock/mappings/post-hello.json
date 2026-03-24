@@ -1,0 +1,15 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "/hello",
+    "headers": {
+      "Content-Type": { "equalTo": "application/json" }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "body": "{\"message\": \"Hello, {{jsonPath request.body '$.name'}}!\", \"timestamp\": \"{{now format='yyyy-MM-dd HH:mm:ss'}}\"}",
+    "transformers": ["response-template"]
+  }
+}
