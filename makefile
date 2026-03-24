@@ -22,6 +22,7 @@ SHELL           := /bin/bash
 
 # ── Modular sub-makefiles ────────────────────────────────────
 include scripts/make/query.mk
+include scripts/make/mock.mk
 
 SCRIPTS_DIR     := scripts
 KIND_CONFIG     := cluster/kind-config.yaml

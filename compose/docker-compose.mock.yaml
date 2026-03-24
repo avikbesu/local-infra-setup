@@ -1,0 +1,54 @@
+# ============================================================
+# docker-compose.mock.yaml
+# WireMock HTTP mock server — start with profile: mock
+#
+#   docker compose --profile mock up -d
+#
+# Stubs are defined as YAML files in compose/wiremock/mappings/.
+# Large response bodies can be extracted to compose/wiremock/__files/.
+# Both directories are mounted read-only — no container restart
+# required when adding new stubs (use the Admin API reload below).
+#
+# Developer workflow:
+#   1. Drop a YAML stub file into compose/wiremock/mappings/
+#   2. Run:  make mock-reload    (hot-reloads mappings via Admin API)
+#      or:   make mock-restart   (full container restart)
+#   3. Test: curl http://localhost:${WIREMOCK_PORT}/your/endpoint
+#
+# Admin UI:    http://localhost:${WIREMOCK_PORT}/__admin/
+# Mappings API: http://localhost:${WIREMOCK_PORT}/__admin/mappings
+# Health:      http://localhost:${WIREMOCK_PORT}/__admin/health
+# ============================================================
+
+services:
+  wiremock:
+    image: wiremock/wiremock:${WIREMOCK_VERSION:-3.10.0-1}
+    profiles: [mock]
+    container_name: wiremock
+    restart: unless-stopped
+
+    # WireMock flags:
+    #   --verbose                  log every matched/unmatched request
+    #   --global-response-templating  enable Handlebars templating in all responses
+    #   --disable-gzip             return plain responses (easier to read in curl)
+    # WireMock flags — MUST be a YAML list, not a folded scalar (> block).
+    # A folded scalar collapses to a single string that Docker passes as one
+    # argument token; WireMock can't parse it and silently ignores all flags.
+    command:
+      - --verbose
+      - --global-response-templating
+      - --disable-gzip
+    ports:
+      - "${WIREMOCK_PORT:-8090}:8080"
+    volumes:
+      # Stub definitions — YAML files, one or many mappings per file.
+      # File names are arbitrary; WireMock loads all *.yaml / *.json files.
+      - ${BASE_DIR}/../compose/wiremock/mappings:/home/wiremock/mappings:ro
+      # Response body files referenced by bodyFileName in stub definitions.
+      - ${BASE_DIR}/../compose/wiremock/__files:/home/wiremock/__files:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/__admin/health | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
