@@ -38,7 +38,7 @@ x-airflow-common: &airflow-common
     AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
     AIRFLOW_VAR_ENVIRONMENT: local
     # Creating connection
-    AIRFLOW_CONN_AIRFLOW_API: "http://${AIRFLOW_ADMIN_USER}:${AIRFLOW_ADMIN_PASSWORD}@airflow-webserver:8080"
+    # AIRFLOW_CONN_AIRFLOW_API: "http://${AIRFLOW_ADMIN_USER}:${AIRFLOW_ADMIN_PASSWORD}@airflow-webserver:8080"   # Added logic within init 
     AIRFLOW_VAR_EXEC_ENV: compose
 
   volumes:
@@ -79,8 +79,34 @@ services:
   airflow-init:
     <<: *airflow-common
     restart: no
-    command: >
-      bash -lc "airflow db migrate && airflow users create --username ${AIRFLOW_ADMIN_USER:-admin} --password ${AIRFLOW_ADMIN_PASSWORD:-admin} --firstname Admin --lastname User --role Admin --email ${AIRFLOW_ADMIN_EMAIL:-admin@example.com} || true"
+    command:
+      - bash
+      - -c
+      - |
+          set -e
+          echo "⏳ Running DB migrations..."
+          airflow db migrate
+
+          echo "👤 Creating admin user..."
+          airflow users create \
+            --username "${AIRFLOW_ADMIN_USER:-admin}" \
+            --password "${AIRFLOW_ADMIN_PASSWORD:-admin}" \
+            --firstname Admin \
+            --lastname User \
+            --role Admin \
+            --email "${AIRFLOW_ADMIN_EMAIL:-admin@example.com}" \
+            || true
+
+          echo "🔗 Registering airflow_api connection..."
+          airflow connections add "airflow_api" \
+            --conn-type "http" \
+            --conn-host "airflow-api-server" \
+            --conn-port "8080" \
+            --conn-login "${AIRFLOW_ADMIN_USER:-admin}" \
+            --conn-password "${AIRFLOW_ADMIN_PASSWORD:-admin}" \
+            || true
+
+          echo "✅ Init complete."
     healthcheck:
       disable: true
 
@@ -119,7 +145,6 @@ services:
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
       <<: *airflow-healthcheck
-    restart: always
     depends_on:
       <<: *airflow-common-depends
       airflow-init:
@@ -131,7 +156,6 @@ services:
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
       <<: *airflow-healthcheck
-    restart: always
     depends_on:
       <<: *airflow-common-depends
       airflow-init:

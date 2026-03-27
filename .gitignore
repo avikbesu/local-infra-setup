@@ -4,3 +4,14 @@
 
 # ── Local secrets — never commit ─────────────────────────────
 .env.local
+
+
+.DS_Store
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+node_modules/
+*.egg-info/
+.pytest_cache/
+output/

@@ -45,14 +45,14 @@ services:
       CATALOG_CATALOG__IMPL:  org.apache.iceberg.jdbc.JdbcCatalog
       CATALOG_URI:            jdbc:postgresql://postgres:5432/iceberg
       CATALOG_JDBC_USER:      ${POSTGRES_USER:-airflow}
-      CATALOG_JDBC_PASSWORD:  ${POSTGRES_PASSWORD:-airflow}
+      CATALOG_JDBC_PASSWORD:  ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.local}
       # ── S3 warehouse (MinIO) ────────────────────────────
       CATALOG_WAREHOUSE:              s3://${MINIO_DEFAULT_BUCKET:-iceberg-warehouse}/
       CATALOG_IO__IMPL:               org.apache.iceberg.aws.s3.S3FileIO
       CATALOG_S3_ENDPOINT:            http://minio:9000
       CATALOG_S3_PATH__STYLE__ACCESS: "true"
       AWS_ACCESS_KEY_ID:              ${MINIO_ROOT_USER:-minioadmin}
-      AWS_SECRET_ACCESS_KEY:          ${MINIO_ROOT_PASSWORD:-minioadmin}
+      AWS_SECRET_ACCESS_KEY:          ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set in .env.local}
       AWS_REGION:                     ${AWS_REGION:-us-east-1}
       # ── Logging — suppress startup credential dump ──────
       # RESTCatalogServer logs the full properties map (incl. passwords)
@@ -85,7 +85,7 @@ services:
     environment:
       # Passed through to catalog/iceberg.properties via ${ENV:VAR} substitution
       AWS_ACCESS_KEY_ID:     ${MINIO_ROOT_USER:-minioadmin}
-      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set in .env.local}
       AWS_REGION:            ${AWS_REGION:-us-east-1}
       MINIO_DEFAULT_BUCKET:  ${MINIO_DEFAULT_BUCKET:-iceberg-warehouse}
     ports:

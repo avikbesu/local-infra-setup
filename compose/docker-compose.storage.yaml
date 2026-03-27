@@ -13,7 +13,7 @@ services:
     restart: unless-stopped
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set in .env.local}
     command: server /data --console-address ":9001"
     volumes:
       - minio-data:/data
@@ -46,7 +46,7 @@ services:
       MINIO_BUCKETS: ${MINIO_BUCKETS:-airflow-logs,airflow-data,iceberg-warehouse}
     entrypoint: >
       /bin/sh -c "
-        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin};
+        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set in .env.local};
         for bucket in $$(echo $$MINIO_BUCKETS | tr ',' ' '); do
           mc mb --ignore-existing local/$$bucket;
           echo \"  ✔ bucket ready: $$bucket\";
