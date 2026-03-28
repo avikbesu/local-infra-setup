@@ -35,6 +35,14 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 512M
 
   # ── One-shot DB provisioner ───────────────────────────────
   # Runs every SQL file in config/postgres/ that matches [0-9]*.sql,

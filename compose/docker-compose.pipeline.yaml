@@ -22,6 +22,15 @@ x-airflow-common: &airflow-common
   image: apache/airflow:3.1.7
   restart: unless-stopped
   profiles: [pipeline]
+  user: "${AIRFLOW_UID:-50000}:0"
+  deploy:
+    resources:
+      limits:
+        cpus: "1.0"
+        memory: 1G
+      reservations:
+        cpus: "0.25"
+        memory: 512M
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${POSTGRES_DB}
@@ -44,8 +53,8 @@ x-airflow-common: &airflow-common
   volumes:
     - ${PWD}/dags/example/dags:/opt/airflow/dags:ro
     - ${PWD}/compose/logs/airflow:/opt/airflow/logs:rw
-    - ${PWD}/compose/plugins:/opt/airflow/plugins
-    - ${PWD}/scripts:/opt/airflow/scripts/infra
+    - ${PWD}/compose/plugins:/opt/airflow/plugins:ro
+    - ${PWD}/scripts:/opt/airflow/scripts/infra:ro
   # logging: &airflow-logging
   #   driver: fluentd
   #   options:

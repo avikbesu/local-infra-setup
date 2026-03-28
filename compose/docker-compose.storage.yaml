@@ -6,7 +6,7 @@
 
 services:
   minio:
-    image: minio/minio:latest
+    image: minio/minio:${MINIO_VERSION:-latest}
     profiles: 
       - storage
       # - pipeline
@@ -26,6 +26,14 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 512M
 
   # One-shot container that creates all required buckets on first run.
   # Safe to re-run — mc mb --ignore-existing is idempotent.
