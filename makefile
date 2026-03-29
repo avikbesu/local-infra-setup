@@ -74,14 +74,38 @@ help: ## Show this help
 	@echo ""
 
 # ── Explicit secrets target (re-run gen at any time) ────────
-secrets: ## Generate missing secrets into .env.local
+secrets: ## Generate any missing secrets into .env.local
 	@bash scripts/gen-secrets.sh
+ 
+# CHANGE [5]: Rotation target. Passes --rotate to gen-secrets.sh which
+# forwards it to gen_secrets.py. Only the named KEYS are removed and
+# regenerated; all other secrets remain untouched.
+rotate: ## Rotate specific secrets  (KEYS=KEY1,KEY2)
+	@[[ -n "$(KEYS)" ]] || { \
+	  echo "❌  Usage: make rotate KEYS=KEY1,KEY2"; \
+	  echo "   Example: make rotate KEYS=MINIO_ROOT_PASSWORD,AIRFLOW_SECRET_KEY"; \
+	  exit 1; \
+	}
+	@bash scripts/gen-secrets.sh --rotate "$(KEYS)"
 
-# ── .env bootstrap ────────────────────────────────────
-# .env.local holds secrets and local overrides (git-ignored).
-# The script is idempotent: it only writes keys that are absent.
-.env: 
+# ── Secrets targets ──────────────────────────────────────────
+# CHANGE [4]: Renamed the Make prerequisite from `.env` to `.env.local`
+# so Make tracks the correct output file.
+#
+# The original `.env` target was semantically wrong: `.env` is a
+# committed file that always exists, so Make considered the rule
+# up-to-date on first checkout and never ran gen-secrets.sh for new
+# team members who lacked .env.local.
+#
+# `.env.local` as the target name fixes this — when the file is absent
+# (fresh clone, clean CI runner), Make correctly treats it as missing
+# and runs the recipe.
+ 
+.env.local: ## Generate .env.local if it does not exist
 	@bash scripts/gen-secrets.sh
+ 
+# Compatibility alias: `make .env` still works but delegates to .env.local
+.env: .env.local
 
 # ── Entry points (branch on USE_KIND) ───────────────────────
 ifeq ($(USE_KIND),true)

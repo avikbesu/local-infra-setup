@@ -6,6 +6,7 @@ Reads config/secrets.yaml, validates every entry against a strict
 schema, then appends any missing secrets to .env.local.
 
 Existing keys are never overwritten — safe to re-run at any time.
+Pass --rotate KEY1,KEY2 to forcibly regenerate specific keys.
 
 Invoked by scripts/gen-secrets.sh, but can also be run directly:
     python3 scripts/gen_secrets.py --config config/secrets.yaml \\
@@ -14,10 +15,12 @@ Invoked by scripts/gen-secrets.sh, but can also be run directly:
 from __future__ import annotations
 
 import argparse
-import base64
+import datetime
+import math
 import os
 import re
 import secrets as _secrets
+import socket
 import sys
 from pathlib import Path
 from typing import Any
@@ -33,8 +36,19 @@ except ImportError:
 
 VALID_METHODS  = frozenset({"static", "random_base64", "random_hex", "fernet"})
 ALLOWED_FIELDS = frozenset({"key", "method", "value", "length"})
-KEY_RE         = re.compile(r"^[A-Z][A-Z0-9_]+$")
-ENV_VAR_RE     = re.compile(r"^([A-Z][A-Z0-9_]+)=")
+
+# CHANGE [7]: Version gate — bump when schema gains new fields/methods.
+SUPPORTED_VERSIONS = frozenset({"1"})
+
+KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]+$")
+
+# CHANGE [1]: Keys whose names match this pattern must never use method=static.
+# Prevents plaintext secrets being quietly committed to VCS via secrets.yaml.
+SENSITIVE_KEY_RE = re.compile(
+    r"(PASSWORD|SECRET|KEY|TOKEN|CREDENTIAL|FERNET)", re.IGNORECASE
+)
+
+ENV_VAR_RE = re.compile(r"^([A-Z][A-Z0-9_]+)=")
 
 LENGTH_MIN     = 8
 LENGTH_MAX     = 256
@@ -47,6 +61,21 @@ ENV_LOCAL_HEADER = (
 )
 
 
+# ── Exceptions ───────────────────────────────────────────────────────────────
+
+# CHANGE [11]: Replaced ad-hoc _die() + sys.exit() pattern with a typed
+# exception. Benefits:
+#   - Testable: unit tests can catch ConfigError instead of patching sys.exit
+#   - Consistent: all fatal errors flow through one path
+#   - Still exits 1 via SystemExit base class
+class ConfigError(SystemExit):
+    """Raised for user-facing configuration errors. Exits with code 1."""
+
+    def __init__(self, msg: str) -> None:
+        print(f"❌  {msg}", file=sys.stderr)
+        super().__init__(1)
+
+
 # ── Validation ───────────────────────────────────────────────────────────────
 
 def validate(config: Any, config_path: str) -> list[dict]:
@@ -57,38 +86,61 @@ def validate(config: Any, config_path: str) -> list[dict]:
     sees the complete list in one run rather than fixing one at a time.
 
     Returns the validated list of secret definitions on success.
-    Calls sys.exit(1) with a formatted error report on failure.
+    Raises ConfigError with a formatted report on failure.
     """
     errors: list[str] = []
 
     # ── Top-level structure ───────────────────────────────────────────────────
     if not isinstance(config, dict):
-        _die(f"{config_path}: root must be a YAML mapping, got {type(config).__name__!r}")
+        raise ConfigError(
+            f"{config_path}: root must be a YAML mapping, "
+            f"got {type(config).__name__!r}"
+        )
+
+    # CHANGE [7]: Validate schema version before processing anything else.
+    version = config.get("version")
+    if not version:
+        raise ConfigError(
+            f"{config_path}: missing required top-level field 'version'.\n"
+            f"   Add:  version: \"1\""
+        )
+    if str(version) not in SUPPORTED_VERSIONS:
+        raise ConfigError(
+            f"{config_path}: unsupported schema version {version!r}.\n"
+            f"   Supported: {', '.join(sorted(SUPPORTED_VERSIONS))}"
+        )
 
     if "secrets" not in config:
-        _die(f"{config_path}: missing required top-level key 'secrets'")
+        raise ConfigError(
+            f"{config_path}: missing required top-level key 'secrets'"
+        )
 
     secrets = config["secrets"]
 
     if not isinstance(secrets, list):
-        _die(f"{config_path}: 'secrets' must be a list, got {type(secrets).__name__!r}")
+        raise ConfigError(
+            f"{config_path}: 'secrets' must be a list, "
+            f"got {type(secrets).__name__!r}"
+        )
 
     if not secrets:
-        _die(f"{config_path}: 'secrets' list is empty — nothing to generate")
+        raise ConfigError(
+            f"{config_path}: 'secrets' list is empty — nothing to generate"
+        )
 
     # ── Per-entry ─────────────────────────────────────────────────────────────
-    seen: dict[str, int] = {}   # key → first-seen index, for duplicate detection
+    seen: dict[str, int] = {}
 
     for idx, entry in enumerate(secrets):
         loc = f"{config_path}: secrets[{idx}]"
 
         if not isinstance(entry, dict):
             errors.append(
-                f"{loc}: each entry must be a YAML mapping, got {type(entry).__name__!r}"
+                f"{loc}: each entry must be a YAML mapping, "
+                f"got {type(entry).__name__!r}"
             )
             continue
 
-        # Unknown fields
         unknown = sorted(set(entry) - ALLOWED_FIELDS)
         if unknown:
             errors.append(
@@ -103,7 +155,9 @@ def validate(config: Any, config_path: str) -> list[dict]:
         if not key:
             errors.append(f"{loc}: missing required field 'key'")
         elif not isinstance(key, str):
-            errors.append(f"{loc}: 'key' must be a string, got {type(key).__name__!r}")
+            errors.append(
+                f"{loc}: 'key' must be a string, got {type(key).__name__!r}"
+            )
             label = f"<entry {idx}>"
         elif not KEY_RE.match(key):
             errors.append(
@@ -111,7 +165,6 @@ def validate(config: Any, config_path: str) -> list[dict]:
                 f"(must match ^[A-Z][A-Z0-9_]+$)"
             )
 
-        # Duplicate check
         if key:
             if key in seen:
                 errors.append(
@@ -126,7 +179,7 @@ def validate(config: Any, config_path: str) -> list[dict]:
 
         if not method:
             errors.append(f"{loc} ({label}): missing required field 'method'")
-            continue   # remaining checks are method-dependent
+            continue
 
         if not isinstance(method, str):
             errors.append(
@@ -162,9 +215,20 @@ def validate(config: Any, config_path: str) -> list[dict]:
                 errors.append(
                     f"{loc} ({label}): 'value' must not be empty for method 'static'"
                 )
+
             if has_length:
                 errors.append(
                     f"{loc} ({label}): 'length' is not allowed for method 'static'"
+                )
+
+            # CHANGE [1]: Block method=static on sensitive key names.
+            # Prevents plaintext passwords/tokens being committed via secrets.yaml.
+            if key and SENSITIVE_KEY_RE.search(key):
+                errors.append(
+                    f"{loc} ({label}): key {key!r} looks sensitive — "
+                    f"method 'static' is not allowed for keys whose names contain "
+                    f"PASSWORD, SECRET, KEY, TOKEN, CREDENTIAL, or FERNET. "
+                    f"Use 'random_base64', 'random_hex', or 'fernet' instead."
                 )
 
         # ── random_base64 / random_hex ────────────────────────────────────────
@@ -206,7 +270,9 @@ def validate(config: Any, config_path: str) -> list[dict]:
         for i, err in enumerate(errors, 1):
             print(f"   {i}. {err}", file=sys.stderr)
         print(file=sys.stderr)
-        sys.exit(1)
+        raise ConfigError(
+            f"Fix the {len(errors)} error(s) above in {config_path} and re-run."
+        )
 
     return secrets  # type: ignore[return-value]
 
@@ -215,31 +281,54 @@ def validate(config: Any, config_path: str) -> list[dict]:
 
 def gen_random_base64(length: int) -> str:
     """
-    URL-safe base64 string with no +/= padding characters.
-    Generates 2× the bytes needed so stripping padding chars
-    still yields at least `length` usable characters.
+    URL-safe base64 string of exactly `length` characters.
+
+    CHANGE [3]: Replaced manual token_bytes + urlsafe_b64encode with
+    secrets.token_urlsafe (stdlib). token_urlsafe(n) produces ~4n/3
+    URL-safe base64 chars from n random bytes — same output, less code,
+    no reimplementation of stdlib behaviour.
     """
-    raw = _secrets.token_bytes(length * 2)
-    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()[:length]
+    # Solve for byte count: token_urlsafe(n) yields ceil(4n/3) chars.
+    # Request enough bytes so slicing to `length` always succeeds.
+    byte_count = math.ceil(length * 3 / 4)
+    return _secrets.token_urlsafe(byte_count)[:length]
 
 
 def gen_random_hex(length: int) -> str:
-    """Lowercase hexadecimal string of exactly `length` characters."""
-    return _secrets.token_hex(length)[:length]
+    """
+    Lowercase hexadecimal string of exactly `length` characters.
+
+    CHANGE [2]: Fixed entropy calculation. The previous implementation
+    called token_hex(length) which returns 2*length hex chars, then
+    sliced to `length` — consuming 2× the entropy silently.
+
+    Correct contract: `length` = number of output hex characters.
+    Entropy = length/2 bytes (ceiling). E.g. length=16 → 8 bytes entropy.
+    """
+    byte_count = math.ceil(length / 2)
+    return _secrets.token_hex(byte_count)[:length]
 
 
 def gen_fernet() -> str:
     """
-    32-byte URL-safe base64 Fernet key.
-    Prefers cryptography.fernet; falls back to stdlib when the
-    cryptography package is not installed.
+    32-byte URL-safe base64 Fernet key (format fixed by spec).
+
+    CHANGE [9]: Removed silent stdlib fallback. cryptography is now a
+    hard dependency installed in .venv-secrets by gen-secrets.sh.
+    A missing package now fails loudly rather than producing a key that
+    may silently differ from what Airflow's Fernet validator expects.
     """
     try:
         from cryptography.fernet import Fernet
-        return Fernet.generate_key().decode()
     except ImportError:
-        # Fernet key = urlsafe_b64encode(32 random bytes), padded to 44 chars
-        return base64.urlsafe_b64encode(os.urandom(32)).decode()
+        raise ConfigError(
+            "The 'cryptography' package is required for method 'fernet' but is "
+            "not installed.\n"
+            "   If running gen_secrets.py directly, install it first:\n"
+            "   pip install cryptography\n"
+            "   Or use gen-secrets.sh which manages the venv automatically."
+        )
+    return Fernet.generate_key().decode()
 
 
 def generate(entry: dict) -> str:
@@ -256,17 +345,23 @@ def generate(entry: dict) -> str:
     elif method == "fernet":
         return gen_fernet()
     else:
-        # Unreachable — validation already rejected unknown methods
-        raise ValueError(f"Unknown method: {method!r}")
+        raise ValueError(f"Unknown method: {method!r}")  # unreachable post-validate
 
 
 # ── .env.local helpers ───────────────────────────────────────────────────────
 
 def bootstrap(env_local: Path) -> None:
-    """Create .env.local with a header comment if it does not exist."""
+    """
+    Create .env.local with a header comment if it does not exist.
+
+    CHANGE [8]: File is created with mode 0600 (owner read/write only).
+    Prevents world-readable secrets on multiuser machines.
+    """
     if not env_local.exists():
+        # touch with restrictive mode before writing any content
+        env_local.touch(mode=0o600)
         env_local.write_text(ENV_LOCAL_HEADER, encoding="utf-8")
-        print(f"📄  Created {env_local}")
+        print(f"📄  Created {env_local}  (mode 0600)")
 
 
 def read_existing_keys(env_local: Path) -> set[str]:
@@ -281,10 +376,60 @@ def read_existing_keys(env_local: Path) -> set[str]:
     return keys
 
 
-def append_secret(env_local: Path, key: str, value: str) -> None:
-    """Append a single KEY=VALUE line to .env.local."""
+def remove_keys(env_local: Path, rotate_keys: set[str]) -> int:
+    """
+    Strip specified keys from .env.local so they are regenerated on the
+    next run. Returns the number of lines removed.
+
+    CHANGE [5]: Rotation support. Removes targeted keys while leaving
+    all other keys intact, preserving the idempotency guarantee for
+    everything that isn't being rotated.
+    """
+    if not env_local.exists() or not rotate_keys:
+        return 0
+
+    lines = env_local.read_text(encoding="utf-8").splitlines(keepends=True)
+    kept = []
+    removed_count = 0
+
+    for line in lines:
+        m = ENV_VAR_RE.match(line)
+        if m and m.group(1) in rotate_keys:
+            removed_count += 1
+        else:
+            kept.append(line)
+
+    env_local.write_text("".join(kept), encoding="utf-8")
+    return removed_count
+
+
+def append_secrets(env_local: Path, new_secrets: list[tuple[str, str]]) -> None:
+    """
+    Append all new KEY=VALUE pairs to .env.local in one write.
+
+    CHANGE [12]: Replaced per-key open() calls with a single batched
+    write. Reduces file-handle churn and makes the append atomic at
+    the OS buffer level.
+    """
+    if not new_secrets:
+        return
+    payload = "".join(f"{key}={value}\n" for key, value in new_secrets)
     with env_local.open("a", encoding="utf-8") as fh:
-        fh.write(f"{key}={value}\n")
+        fh.write(payload)
+
+
+def append_run_metadata(env_local: Path) -> None:
+    """
+    Write a timestamped metadata comment to .env.local after each run.
+
+    CHANGE [10]: Provides an audit trail — when were secrets last
+    generated/rotated and on which machine. Useful for compliance reviews
+    and debugging stale-credential issues.
+    """
+    ts   = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds") + "Z"
+    host = socket.gethostname()
+    with env_local.open("a", encoding="utf-8") as fh:
+        fh.write(f"\n# Last run: {ts}  host: {host}\n")
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
@@ -293,6 +438,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate secrets from config/secrets.yaml into .env.local",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  # Generate all missing secrets\n"
+            "  python3 scripts/gen_secrets.py\n\n"
+            "  # Rotate specific secrets (removes + regenerates)\n"
+            "  python3 scripts/gen_secrets.py --rotate MINIO_ROOT_PASSWORD,AIRFLOW_SECRET_KEY\n"
+        ),
     )
     parser.add_argument(
         "--config",
@@ -307,6 +459,18 @@ def parse_args() -> argparse.Namespace:
         dest="env_file",
         help="Path to .env.local (default: .env.local)",
     )
+    # CHANGE [5]: --rotate flag for targeted key rotation.
+    parser.add_argument(
+        "--rotate",
+        default="",
+        metavar="KEY1,KEY2,...",
+        help=(
+            "Comma-separated list of keys to forcibly regenerate. "
+            "The named keys are removed from .env.local before generation runs, "
+            "so they are treated as missing and written fresh. "
+            "All other keys are untouched."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -315,12 +479,13 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    config_path = Path(args.config)
-    env_local   = Path(args.env_file)
+    config_path  = Path(args.config)
+    env_local    = Path(args.env_file)
+    rotate_keys  = {k.strip() for k in args.rotate.split(",") if k.strip()}
 
     # ── Load YAML ─────────────────────────────────────────────────────────────
     if not config_path.exists():
-        _die(
+        raise ConfigError(
             f"Secrets config not found: {config_path}\n"
             f"   Expected at: {config_path.resolve()}"
         )
@@ -329,13 +494,31 @@ def main() -> None:
         try:
             config = yaml.safe_load(fh)
         except yaml.YAMLError as exc:
-            _die(f"Failed to parse {config_path}:\n   {exc}")
+            raise ConfigError(f"Failed to parse {config_path}:\n   {exc}")
 
     # ── Validate ──────────────────────────────────────────────────────────────
     secret_defs = validate(config, str(config_path))
 
     # ── Bootstrap .env.local ──────────────────────────────────────────────────
     bootstrap(env_local)
+
+    # ── Rotation: strip targeted keys so they are treated as missing ──────────
+    # CHANGE [5]: Rotation removes keys before the existence check so the
+    # standard "skip if present" logic regenerates them naturally.
+    if rotate_keys:
+        # Validate that every requested rotation key exists in the config.
+        defined_keys = {e["key"] for e in secret_defs}
+        unknown_rotate = rotate_keys - defined_keys
+        if unknown_rotate:
+            raise ConfigError(
+                f"--rotate contains key(s) not defined in {config_path}: "
+                f"{', '.join(sorted(unknown_rotate))}"
+            )
+        removed = remove_keys(env_local, rotate_keys)
+        print(
+            f"♻️   Rotation: removed {removed} key(s) from {env_local} "
+            f"({', '.join(sorted(rotate_keys))})"
+        )
 
     # ── Generate missing secrets ──────────────────────────────────────────────
     existing = read_existing_keys(env_local)
@@ -345,8 +528,9 @@ def main() -> None:
         f"(config: {config_path})..."
     )
 
-    written: list[str] = []
-    skipped: list[str] = []
+    # CHANGE [12]: Collect all new secrets first, then write in one batch.
+    to_write:  list[tuple[str, str]] = []
+    skipped:   list[str]             = []
 
     for entry in secret_defs:
         key: str = entry["key"]
@@ -356,14 +540,18 @@ def main() -> None:
             continue
 
         value = generate(entry)
-        append_secret(env_local, key, value)
-        written.append(key)
+        to_write.append((key, value))
         print(f"   ✔  {key:<35}  [{entry['method']}]")
 
-    # ── Summary ───────────────────────────────────────────────────────────────
+    append_secrets(env_local, to_write)
 
-    if written:
-        print(f"✅  {len(written)} secret(s) written to {env_local}")
+    # CHANGE [10]: Always write a run-metadata comment so the file records
+    # when it was last touched, regardless of whether new secrets were added.
+    append_run_metadata(env_local)
+
+    # ── Summary ───────────────────────────────────────────────────────────────
+    if to_write:
+        print(f"✅  {len(to_write)} secret(s) written to {env_local}")
         if skipped:
             print(
                 f"⏭️   {len(skipped)} already present — skipped "
@@ -375,11 +563,6 @@ def main() -> None:
             f"✅  All {len(skipped)} secret(s) already present in "
             f"{env_local} — nothing changed."
         )
-
-
-def _die(msg: str) -> None:
-    print(f"❌  {msg}", file=sys.stderr)
-    sys.exit(1)
 
 
 if __name__ == "__main__":
