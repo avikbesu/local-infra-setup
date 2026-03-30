@@ -26,6 +26,7 @@ SHELL           := /bin/bash
 include scripts/make/query.mk
 include scripts/make/mock.mk
 include scripts/make/ollama.mk
+include scripts/make/proxy.mk
 
 # ── Read ICEBERG_REST_VERSION from .env (no -include, avoids .env remake loop) ─
 ICEBERG_REST_VERSION := $(strip $(shell grep -s '^ICEBERG_REST_VERSION=' .env | cut -d= -f2))
