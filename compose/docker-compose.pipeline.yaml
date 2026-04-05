@@ -52,8 +52,8 @@ x-airflow-common: &airflow-common
 
   volumes:
     - ${PWD}/dags/example/dags:/opt/airflow/dags:ro
-    - ${PWD}/compose/logs/airflow:/opt/airflow/logs:rw
-    - ${PWD}/compose/plugins:/opt/airflow/plugins:ro
+    - ${PWD}/airflow/compose/logs/airflow:/opt/airflow/logs:rw
+    - ${PWD}/airflow/compose/plugins:/opt/airflow/plugins:ro
     - ${PWD}/scripts:/opt/airflow/scripts/infra:ro
   # logging: &airflow-logging
   #   driver: fluentd
@@ -138,6 +138,7 @@ services:
   airflow-api-server:
     <<: *airflow-common
     command: api-server
+    container_name: airflow-api-server
     ports:
       - "${AIRFLOW_API_SERVER_PORT:-8080}:8080"
     depends_on:
