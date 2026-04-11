@@ -43,6 +43,21 @@ install_yq() {
   chmod +x /tmp/yq && sudo mv /tmp/yq /usr/local/bin/yq
 }
 
+install_gh() {
+  log_info "Installing gh (GitHub CLI)..."
+  local out
+  out=$(mktemp)
+  (type -p wget >/dev/null || (sudo apt-get update -q && sudo apt-get install -y wget))
+  sudo mkdir -p -m 755 /etc/apt/keyrings
+  wget -nv -O"$out" https://cli.github.com/packages/githubcli-archive-keyring.gpg
+  cat "$out" | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
+  sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+  sudo mkdir -p -m 755 /etc/apt/sources.list.d
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+    | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+  sudo apt-get update -q && sudo apt-get install -y gh
+}
+
 # ── Check function ─────────────────────────────────────────────────────────────
 check_tool() {
   local tool="$1"
@@ -69,6 +84,7 @@ check_tool kubectl    install_kubectl
 check_tool kind       install_kind
 check_tool helm       install_helm
 check_tool yq         install_yq
+check_tool gh         install_gh
 echo ""
 
 if $INSTALL_MISSING; then
