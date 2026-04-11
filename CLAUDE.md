@@ -1,204 +1,106 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository.
 
-## Overview
+For full project documentation see **[README.md](README.md)**.
+For contribution workflow and change guidelines see **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
-A modular Docker Compose–based local data engineering platform. Services are grouped by Docker Compose **profiles**; the Makefile is the sole entry point for all operations.
+---
 
-## Stack Components
+## Repository at a Glance
 
-| Component | Technology | Ports | Purpose |
-|-----------|-----------|-------|---------|
-| Object Storage | MinIO | 9000 (API), 9001 (Console) | S3-compatible local data lake storage |
-| Database | PostgreSQL 16 | 5432 | Iceberg catalog + Airflow metadata |
-| Catalog | Iceberg REST | 8181 | Apache Iceberg table catalog (JDBC-backed) |
-| Query Engine | Trino 435 | 8080 | Distributed SQL over Iceberg tables |
-| Orchestration | Apache Airflow 3 | 8081 (API server) | DAG-based workflow scheduling |
-| Log Shipping | Fluentd | 24224 | Centralized log aggregation → MinIO |
-| Mock Server | WireMock 3.10 | 8090 | HTTP API mocking for development |
-| Reverse Proxy | Nginx | 80 | Unified ingress for all services |
+A modular Docker Compose–based local data engineering platform. Services are grouped by Docker Compose **profiles**; the `makefile` is the sole entry point for all operations — never run `docker compose` directly.
 
-## Common Commands
+Stack: MinIO · PostgreSQL 16 · Iceberg REST · Trino 435 · Airflow 3 · Fluentd · WireMock 3.10 · Nginx · Kubernetes (kind + Helm).
 
-```bash
-# Full stack (all profiles)
-make up
+---
 
-# Query engine only (Trino + Iceberg + Postgres + MinIO)
-make query
+## Key Architecture Constraints
 
-# Airflow pipeline only
-make pipeline
+These are non-negotiable design decisions. Violating them breaks the platform.
 
-# Full stack + nginx reverse proxy
-make proxy-up
+| Constraint | Why |
+|------------|-----|
+| All `depends_on` must use `condition: service_healthy` or `condition: service_completed_successfully` | Bare `depends_on` causes race conditions on startup |
+| Never pin `latest` image tags | Reproducibility — always use explicit versions |
+| Secrets go in `.env.local` only, never in compose files or Helm values | `.env.local` is git-ignored; committed files must be safe to share |
+| Use service names as hostnames (`postgres:5432`, not `localhost:5432`) | Services communicate over named Docker networks |
+| New compose files in `compose/` are auto-included by the makefile glob | No manual registration needed; adding the file is enough |
+| `cluster/helm-components.yaml` is the single registry for Kubernetes components | All K8s deploy/remove/port-forward logic reads from this file |
 
-# Stop the stack
-make down
+### Airflow 3 Specifics
 
-# Tail logs for a service
-make logs SERVICE=trino
+- Import namespace: `from airflow.sdk import DAG, dag, task, asset` — never `from airflow import DAG`
+- Health check: `GET /api/v2/monitor/health` (not `/health`)
+- Secret key env var: `AIRFLOW__API_AUTH__JWT_SECRET` (not `AIRFLOW__API__JWT_SECRET`)
+- Scheduler needs `AIRFLOW__CORE__EXECUTION_API_SERVER_URL` set to reach `airflow-api-server`
+- The `dags/` directory is a git submodule — never edit files there directly; changes must go through the upstream repo
 
-# Shell into a container
-make shell SERVICE=trino
+---
 
-# Check container status
-make ps
+## Best Practices for AI-Assisted Work
 
-# Validate compose config
-make lint
+### Before Making Changes
 
-# Health check all services
-make health
+1. Run `make lint` to validate all compose files parse correctly before suggesting compose edits
+2. Run `make ps` and `make health` to understand current service state before debugging
+3. Read the relevant compose file under `compose/` before touching service config
+4. Check `config/secrets.yaml` before adding new environment variables — secrets are generated, not hand-written
 
-# Sync git submodules (update DAGs)
-make sync
-```
+### When Adding a Service
 
-## Secrets Management
+- Add it to the appropriate `compose/docker-compose.<group>.yaml` (or create a new one — it's auto-included)
+- Assign a profile; never add a service to the default (profileless) set
+- Add a `healthcheck` block — stateful services require one before downstream `depends_on` will work
+- Add `make` targets to the relevant `scripts/make/*.mk` file
 
-```bash
-# Generate/regenerate all missing secrets into .env.local
-make secrets
+### When Adding Kubernetes Components
 
-# Rotate specific secrets only (others untouched)
-make rotate KEYS=MINIO_ROOT_PASSWORD,AIRFLOW_SECRET_KEY
-```
+- Register in `cluster/helm-components.yaml` — don't run `helm install` manually
+- Always set resource limits in `helm/<component>/values.yaml`
+- Use `condition: service_healthy` in `depends_on` entries within the YAML registry
+- Test with `make kube-deploy-one COMPONENT=<name>` before `make kube-up`
 
-Environment files are loaded in order (later values win):
-- `.env` — non-secret defaults, committed to git
-- `.env.local` — secrets and local overrides, git-ignored (auto-generated by `make up` on first run)
+### Makefile Rules
 
-## Query Engine Targets
+- Every new repeatable operation needs a `make` target
+- Declare targets in `.PHONY`
+- Add a `## Description` comment for `make help` to pick up
+- Group targets under the appropriate sub-makefile in `scripts/make/`
 
-```bash
-make trino-shell                              # Interactive Trino CLI
-make trino-schemas                            # List schemas
-make trino-tables SCHEMA=my_schema            # List tables
-make trino-describe TABLE=events SCHEMA=my_schema
-make trino-select TABLE=events LIMIT=50
-make trino-query SQL="SELECT count(*) FROM iceberg.default.events"
+### Secrets Rules
 
-make iceberg-namespaces
-make iceberg-tables NAMESPACE=my_schema
-make iceberg-table-meta NAMESPACE=my_schema TABLE=events
-make iceberg-snapshots NAMESPACE=my_schema TABLE=events
-```
+- Never hardcode or suggest hardcoding a secret value in any committed file
+- New secrets: add the key to `config/secrets.yaml`, then `make secrets` generates the value
+- Rotation: `make rotate KEYS=MY_KEY` — never edit `.env.local` directly for rotation
 
-## WireMock Mock Server
+### Code Quality
 
-```bash
-make mock              # Start mock server (profile: mock)
-make mock-reload       # Hot-reload stubs from disk (no restart)
-make mock-requests     # View received requests (pretty-printed)
-make mock-reset-scenarios  # Reset scenario states
-make mock-logs         # Tail WireMock logs
-make mock-down         # Stop mock server
-```
+- Python: PEP 8, type hints, Google-style docstrings, `structlog`, explicit exceptions — see parent `CLAUDE.md` at `infra/.claude/CLAUDE.md`
+- Go: wrap errors with `fmt.Errorf("context: %w", err)`, table-driven tests, `slog`/`zap`
+- Shell scripts: idempotent where possible; `set -euo pipefail` at the top
 
-## Nginx Proxy
+### Commits
 
-```bash
-make proxy-up      # Start full stack + nginx (profile: proxy)
-make proxy-down    # Stop full stack + proxy
-make proxy-logs    # Tail nginx logs
-make proxy-reload  # Hot-reload nginx config (no downtime)
-```
-
-## Airflow DAG Validation
-
-```bash
-make dagcheck
-```
-
-## Kubernetes (Kind) Deployment
-
-```bash
-# Prerequisites
-make check-deps           # Verify required tools: docker, kubectl, kind, helm, yq, gh
-                          # Add ARGS=--install to auto-install missing tools
-make helm-repos           # Add/update Helm repos
-
-# Cluster lifecycle
-make kube-up              # Create cluster + deploy all enabled components
-make kube-down            # Tear down releases then delete cluster
-make kube-status          # Show cluster, releases, pods, port-forward status
-
-# Fine-grained deploy
-make kube-deploy          # Deploy all enabled components
-make kube-deploy-one COMPONENT=airflow  # Deploy a single component
-make kube-remove          # Remove all enabled Helm releases (cluster kept)
-make kube-remove-one COMPONENT=airflow  # Remove a single release
-
-# Port-forwarding
-make kube-port-forward         # Start background port-forwards
-make kube-port-forward-stop    # Kill all kubectl port-forward processes
-make kube-port-forward-status  # List running port-forward processes
-```
-
-Helm components are defined in `cluster/helm-components.yaml`. Toggle `enabled: true/false` per component. Components declare `depends_on`, `pre_manifests` (kubectl manifests applied before `helm install`), and `port_forward` mappings.
-
-## Ollama Integration
-
-```bash
-make ollama-install                          # Install latest ollama
-make ollama-check                            # Validate ollama installation
-make ollama-list                             # List downloaded models
-make ollama OLLAMA_MODEL=qwen2.5-coder:7b   # Launch Claude Code with Ollama
-make ollama-stop                             # Stop Ollama server
-```
-
-## Iceberg REST Image
-
-The Iceberg REST image is built locally (not pulled). It uses a custom `entrypoint.sh` to filter credential leakage from JVM logs.
-
-```bash
-make build-query   # Build iceberg-rest-local:<ICEBERG_REST_VERSION> (skips if already present)
-```
-
-The `make query` target automatically calls `build-query`. Version is read from `.env` (`ICEBERG_REST_VERSION`, default `1.6.0`).
-
-## Architecture and Key Design Decisions
-
-### Compose Structure
-
-All compose files live under `compose/`. The main `makefile` dynamically globs `./compose/docker-compose*.yaml` — **adding a new compose file here auto-includes it**. Profiles control which services activate; there is no single monolithic compose file.
-
-### Dependency Order
+Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
-minio → minio-init → iceberg-rest → trino
-postgres → postgres-init → iceberg-rest
-postgres → postgres-init → airflow-init → airflow-scheduler → airflow-api-server
-minio → fluentd (async, not a hard startup dependency)
+feat:     new service, profile, or capability
+fix:      broken healthcheck, config error, dependency ordering
+chore:    version bumps, gitignore, tooling
+refactor: restructure without behaviour change
+docs:     README, FAQ, CONTRIBUTING updates
 ```
 
-All `depends_on` entries use `condition: service_healthy` or `condition: service_completed_successfully`. Never bare `depends_on`.
+---
 
-### Airflow 3 Architecture
+## Antipatterns — Never Do These
 
-- `webserver` is replaced by `airflow-api-server` (serves UI + REST API + Task Execution Interface)
-- Scheduler requires `AIRFLOW__CORE__EXECUTION_API_SERVER_URL` to know the api-server URL
-- Secret key config: `[api]` section, not `[webserver]`
-- Health check endpoint: `GET /api/v2/monitor/health`
-- DAGs live in the `dags/` git submodule (`airflow3-by-example`), sparse-checked to `example/dags/`
-
-### Modular Makefile
-
-The root `makefile` includes sub-makefiles from `scripts/make/`:
-- `query.mk` — Trino SQL + Iceberg REST API targets
-- `mock.mk` — WireMock targets
-- `ollama.mk` — Ollama LLM targets
-- `proxy.mk` — Nginx reverse proxy targets
-
-### Kubernetes Deployment
-
-`scripts/kube-deploy.sh` reads `cluster/helm-components.yaml` and deploys components in dependency order. Each component can declare `pre_manifests` (kubectl apply before helm install) and `port_forward` definitions consumed by `kube-port-forward.sh`.
-
-## Known Issues (from FAQ.md)
-
-1. **Airflow tasks failing**: Dependency order matters — `postgres → airflow-init → airflow-api-server → airflow-scheduler`
-2. **Iceberg REST logs credentials**: Mitigated by custom `entrypoint.sh` filtering; not fully resolved via JVM logging config
-3. **Iceberg REST healthcheck**: Uses TCP bash check instead of curl (curl absent in tabulario/iceberg-rest minimal JVM image)
-4. **Trino `query.max-total-memory-per-node`**: Removed — property was defunct in Trino 435
+- Never run raw `docker compose` commands — always go through `make`
+- Never use `latest` image tags in compose files or Helm values
+- Never put real secrets in any committed file (`.env`, compose YAML, Helm values)
+- Never skip health checks on databases or brokers that other services depend on
+- Never use bare `depends_on` — always add the `condition:` key
+- Never edit files under `dags/` directly — it is a git submodule
+- Never bind `cluster-admin` to a workload service account
+- Never use `network_mode: host` — use named networks
