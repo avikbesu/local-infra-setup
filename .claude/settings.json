@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+
+  "permissions": {
+    "allow": [
+      "Read",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Bash(make *)",
+      "Bash(git status)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git fetch *)",
+      "Bash(git checkout *)",
+      "Bash(git branch *)",
+      "Bash(git show *)",
+      "Bash(git stash *)"
+    ],
+    "ask": [
+      "Bash(docker *)",
+      "Bash(kubectl *)",
+      "Bash(helm *)",
+      "Bash(kind *)",
+      "WebFetch"
+    ],
+    "deny": [
+      "Bash(docker compose *)",
+      "Bash(docker-compose *)",
+      "Bash(rm -rf *)"
+    ],
+    "defaultMode": "default"
+  },
+
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/block-dags-edit.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/validate-compose.sh",
+            "async": true,
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
