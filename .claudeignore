@@ -1,0 +1,35 @@
+# DAGs submodule — read-only; changes must go through the upstream repo
+dags/
+
+# Generated chart output
+*/chart/*
+
+# Logs and temporary files
+**/logs/**
+**/*.log
+*.tmp
+
+# Secrets — belt-and-suspenders on top of .gitignore
+.env.local
+**/*.pem
+**/*.key
+**/*.pfx
+**/*kubeconfig*
+
+# Python artifacts
+**/__pycache__/
+**/*.pyc
+**/.venv/
+
+# Helm dependency cache
+**/charts/
+helm/**/Chart.lock
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Git internals
+.git/

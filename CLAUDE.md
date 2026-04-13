@@ -2,8 +2,26 @@
 
 Guidance for Claude Code when working in this repository.
 
-For full project documentation see **[README.md](README.md)**.
-For contribution workflow and change guidelines see **[CONTRIBUTING.md](CONTRIBUTING.md)**.
+For full project documentation see @README.md.
+For contribution workflow and change guidelines see @CONTRIBUTING.md.
+
+---
+
+## Quick Commands
+
+| Command | Purpose |
+|---------|---------|
+| `make ps` | Show all running services and their status |
+| `make health` | Check health of all services |
+| `make lint` | Validate all compose files parse correctly |
+| `make up PROFILES=<p>` | Start services for a given profile |
+| `make down` | Stop all services |
+| `make logs SERVICE=<s>` | Tail logs for a specific service |
+| `make secrets` | Generate secrets from `config/secrets.yaml` |
+| `make rotate KEYS=MY_KEY` | Rotate a specific secret |
+| `make kube-up` | Bring up all Kubernetes components |
+| `make kube-down` | Tear down all Kubernetes components |
+| `make kube-deploy-one COMPONENT=<n>` | Deploy a single Helm component |
 
 ---
 
