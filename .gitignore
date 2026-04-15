@@ -5,14 +5,51 @@
 # ── Local secrets — never commit ─────────────────────────────
 .env.local
 
-
+# ── OS artifacts ─────────────────────────────────────────────
 .DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Python ───────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
-.venv/
-node_modules/
+*.pyd
 *.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.whl
 .pytest_cache/
-output/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# ── Virtual environments ────────────────────────────────────
+.venv/
 .venv-secrets/
+venv/
+env/
+
+# ── Editor / IDE ────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# ── Node ────────────────────────────────────────────────────
+node_modules/
+
+# ── Misc ────────────────────────────────────────────────────
+output/
+*.log
+*.bak
+*.tmp
+.env.bak
