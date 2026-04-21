@@ -197,8 +197,8 @@ query: .env build-query ## Start query engine stack (Trino + Iceberg REST + Post
 
 
 airflow-dirs: ## Create Airflow log/plugin dirs with correct permissions (UID 50000 / GID 0)
-	@mkdir -p airflow/compose/logs/airflow airflow/compose/plugins
-	@chmod 777 airflow/compose/logs/airflow airflow/compose/plugins
+	@mkdir -p compose/container/logs/airflow compose/container/plugins/airflow
+	@chmod 777 compose/container/logs/airflow compose/container/plugins/airflow
 
 pipeline: .env airflow-dirs ## Start pipeline stack (Airflow + Postgres)
 	@echo "🔍 Starting pipeline stack..."
