@@ -1,4 +1,3 @@
 [submodule "dags"]
 	path = dags
-	url = git@github.com:avikbesu/airflow3-by-example.git
-	branch = main
+	url = git@github.com:avikbesu/airflow3-dags.git
