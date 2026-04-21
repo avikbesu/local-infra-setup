@@ -56,7 +56,7 @@ DC := docker compose $(ENV_FILE_FLAGS) $(PROFILE_FLAGS) \
       $(foreach f,$(COMPOSE_FILE_LIST),-f $(f))
 
 .PHONY: help up down build restart logs shell ps clean prune lint health smoke-test \
-        kind-up kind-down kind-status compose-up compose-down .env
+        kind-up kind-down kind-status compose-up compose-down .env airflow-dirs
 
 # ── Help ────────────────────────────────────────────────────
 default: help
@@ -196,7 +196,11 @@ query: .env build-query ## Start query engine stack (Trino + Iceberg REST + Post
 	@echo ""
 
 
-pipeline: .env ## Start pipeline stack (Airflow + Postgres)
+airflow-dirs: ## Create Airflow log/plugin dirs with correct permissions (UID 50000 / GID 0)
+	@mkdir -p compose/container/logs/airflow compose/container/plugins/airflow
+	@chmod 777 compose/container/logs/airflow compose/container/plugins/airflow
+
+pipeline: .env airflow-dirs ## Start pipeline stack (Airflow + Postgres)
 	@echo "🔍 Starting pipeline stack..."
 	docker compose $(ENV_FILE_FLAGS) \
 		--profile pipeline \

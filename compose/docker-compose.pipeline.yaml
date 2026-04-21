@@ -19,7 +19,7 @@
 
 # --------------- Airflow shared anchors ---------------------
 x-airflow-common: &airflow-common
-  image: apache/airflow:3.1.7
+  image: apache/airflow:3.2.0
   restart: unless-stopped
   profiles: [pipeline]
   user: "${AIRFLOW_UID:-50000}:0"
@@ -51,9 +51,9 @@ x-airflow-common: &airflow-common
     AIRFLOW_VAR_EXEC_ENV: compose
 
   volumes:
-    - ${PWD}/dags/example/dags:/opt/airflow/dags:ro
-    - ${PWD}/airflow/compose/logs/airflow:/opt/airflow/logs:rw
-    - ${PWD}/airflow/compose/plugins:/opt/airflow/plugins:ro
+    - ${PWD}/dags/dags:/opt/airflow/dags:ro
+    - ${PWD}/compose/container/logs/airflow:/opt/airflow/logs:rw
+    - ${PWD}/compose/container/plugins/airflow:/opt/airflow/plugins:ro
     - ${PWD}/scripts:/opt/airflow/scripts/infra:ro
   # logging: &airflow-logging
   #   driver: fluentd
