@@ -52,8 +52,8 @@ x-airflow-common: &airflow-common
 
   volumes:
     - ${PWD}/dags/dags:/opt/airflow/dags:ro
-    - ${PWD}/airflow/compose/logs/airflow:/opt/airflow/logs:rw
-    - ${PWD}/airflow/compose/plugins:/opt/airflow/plugins:ro
+    - ${PWD}/compose/container/logs/airflow:/opt/airflow/logs:rw
+    - ${PWD}/compose/container/plugins/airflow:/opt/airflow/plugins:ro
     - ${PWD}/scripts:/opt/airflow/scripts/infra:ro
   # logging: &airflow-logging
   #   driver: fluentd
