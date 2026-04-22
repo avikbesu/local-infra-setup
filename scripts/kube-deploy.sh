@@ -36,6 +36,11 @@ if [[ -n "$TARGET" ]]; then
   $found || die "Component '${TARGET}' not found or not enabled in config."
 fi
 
+# ── Pre-flight: assert all file references exist before touching the cluster ──
+log_info "Pre-flight: checking file references..."
+validate_enabled_files
+log_ok "Pre-flight OK"
+
 # ── Resolve deployment order via topological sort ────────────────────────────
 log_info "Resolving deployment order..."
 ordered_indices=$(topo_sort_indices)
@@ -78,16 +83,16 @@ for idx in $ordered_indices; do
     fi
   done < <(enabled_manifests "$idx")
 
-  # Validate values file
-  if [[ ! -f "$values_file" ]]; then
-    die "Values file not found: $values_file"
-  fi
-
   # Helm upgrade --install
+  # --atomic:           roll back to previous revision on upgrade failure
+  # --cleanup-on-fail:  delete newly created resources on a failed install/upgrade
+  # --wait + --timeout: block until all resources are ready
   log_info "  Running helm upgrade --install..."
   helm upgrade --install "$name" "$chart" \
     --namespace "$namespace" \
     --values "$values_file" \
+    --atomic \
+    --cleanup-on-fail \
     --wait \
     --timeout "$wait_timeout"
 
