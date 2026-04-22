@@ -1,0 +1,69 @@
+# ============================================================
+# MinIO — Helm Chart Values
+# Target: local kind cluster (single-node)
+# Chart:  minio/minio
+# Status: disabled by default (set enabled: true in helm-components.yaml)
+# ============================================================
+
+# ── Mode ──────────────────────────────────────────────────────
+# Standalone mode is sufficient for local dev; no distributed/HA needed.
+mode: standalone
+
+# ── Credentials ───────────────────────────────────────────────
+# Reference env vars from .env.local — never hardcode secrets here.
+rootUser: "minio"
+rootPassword: "minio123"
+
+# ── Persistence ───────────────────────────────────────────────
+persistence:
+  enabled: true
+  size: 5Gi
+  storageClass: standard
+
+# ── Resources ─────────────────────────────────────────────────
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# ── Service ───────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 9000
+
+consoleService:
+  type: ClusterIP
+  port: 9001
+
+# ── Ingress ───────────────────────────────────────────────────
+ingress:
+  enabled: false
+
+consoleIngress:
+  enabled: false
+
+# ── Health probes ─────────────────────────────────────────────
+# Extended for resource-constrained kind nodes.
+livenessProbe:
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 5
+
+readinessProbe:
+  initialDelaySeconds: 30
+  periodSeconds: 15
+  timeoutSeconds: 10
+  failureThreshold: 5
+
+# ── Buckets (created on startup) ──────────────────────────────
+buckets:
+  - name: warehouse
+    policy: none
+    purge: false
+  - name: raw
+    policy: none
+    purge: false

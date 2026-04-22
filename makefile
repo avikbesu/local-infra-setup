@@ -243,6 +243,22 @@ helm-repos: ## Add and update Helm repos for all enabled components
 ##@ Kubernetes — Cluster
 # =============================================================================
 
+# =============================================================================
+##@ Kubernetes — Validation
+# =============================================================================
+
+.PHONY: kube-validate
+kube-validate: ## Validate helm-components.yaml: fields, file refs, dep cycles
+	@bash $(SCRIPTS_DIR)/kube-validate.sh
+
+.PHONY: kube-validate-render
+kube-validate-render: helm-repos ## Validate + helm template dry-run (no cluster needed)
+	@bash $(SCRIPTS_DIR)/kube-validate.sh --render
+
+# =============================================================================
+##@ Kubernetes — Cluster
+# =============================================================================
+
 .PHONY: kube-start
 kube-start: check-deps ## Create the local Kind cluster
 	@if kind get clusters 2>/dev/null | grep -qx "$(CLUSTER_NAME)"; then \
