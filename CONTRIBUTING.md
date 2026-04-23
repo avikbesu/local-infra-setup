@@ -35,6 +35,9 @@ gh auth login
 git clone --recurse-submodules git@github.com:avikbesu/local-infra-setup.git
 cd local-infra-setup
 
+# Activate git pre-commit hooks (blocks .env.local commits, validates compose, scans for secrets)
+make setup
+
 # Generate secrets into .env.local (auto-runs on first `make up`)
 make secrets
 
@@ -42,6 +45,11 @@ make secrets
 make up
 make health
 ```
+
+The `make setup` step is required only once per clone. It activates `.githooks/pre-commit` which:
+- Blocks accidental staging of `.env.local`
+- Runs `make lint` when any compose file is changed
+- Scans staged files for common hardcoded secret patterns
 
 ## Project Structure
 
@@ -84,6 +92,84 @@ Add an entry to `cluster/helm-components.yaml`:
 ```
 
 Then add a `helm/my-service/values.yaml` with all resource limits set.
+
+**`pre_manifests` vs Helm chart:** Use `pre_manifests` for resources the chart cannot create itself — PersistentVolumes, PersistentVolumeClaims, CRDs, or cross-namespace resources. They are applied with `kubectl apply` before `helm install` runs. Example: Airflow's `helm/airflow/dags_pv.yaml` and `dags_pvc.yaml` define the DAG volume that the chart mounts but doesn't own.
+
+### Testing a Kubernetes Component Locally
+
+```bash
+# 1. Check all required tools are installed
+make check-deps
+
+# 2. Add Helm repos for all enabled components
+make helm-repos
+
+# 3. Validate the registry YAML and run helm template dry-run (no cluster needed)
+make kube-validate-render
+
+# 4. Start the kind cluster (idempotent — no-op if already running)
+make kube-start
+
+# 5. Create K8s Secrets from .env.local
+make kube-secrets
+
+# 6. Deploy your component only (dependency order is resolved automatically)
+make kube-deploy-one COMPONENT=my-service
+
+# 7. Watch pod readiness
+kubectl get pods -n my-ns -w
+
+# 8. Port-forward to test locally
+make kube-port-forward
+
+# 9. Tear down when done
+make kube-remove-one COMPONENT=my-service
+```
+
+### Kubernetes Debugging Checklist
+
+| Symptom | First command |
+|---------|---------------|
+| Pod stuck in `Pending` | `kubectl describe pod <pod> -n <ns>` → check Events section for resource/scheduling reason |
+| Pod in `CrashLoopBackOff` | `kubectl logs <pod> -n <ns> --previous` to see the last crash output |
+| Pod `OOMKilled` | Increase `resources.limits.memory` in `helm/<component>/values.yaml` and redeploy |
+| `ImagePullBackOff` | Verify the image tag is pinned and the registry is reachable from the kind node |
+| Helm install times out | Check if `depends_on` components are healthy first; increase `wait_timeout` if pods are slow to start |
+| RBAC errors in pod logs | `kubectl auth can-i <verb> <resource> --as=system:serviceaccount:<ns>:<sa> -n <ns>` |
+| Secret missing | Confirm `make kube-secrets` ran successfully; check with `kubectl get secret -n <ns>` |
+| Port-forward not working | Check `make kube-port-forward-status`; stop and restart with `make kube-port-forward-stop && make kube-port-forward` |
+
+### Resource Sizing for kind
+
+kind runs on a single node. All component resource limits share the same host CPU and RAM. Recommended host minimums and per-component budgets:
+
+| Component | CPU limit | Memory limit | Namespace |
+|-----------|-----------|--------------|-----------|
+| postgres | 500m | 512Mi | db |
+| airflow scheduler | 1000m | 1Gi | af |
+| airflow api-server | 500m | 768Mi | af |
+| airflow dag-processor | 500m | 512Mi | af |
+| airflow triggerer | 200m | 256Mi | af |
+| wiremock | 200m | 256Mi | misc |
+| nginx | 200m | 128Mi | misc |
+
+**Total (enabled set):** ~3.1 vCPU / ~3.5 GiB  
+**Recommended host:** 4 vCPU / 6 GiB free for the kind VM  
+
+If pods are OOMKilled or evicted, check node pressure with:
+```bash
+kubectl describe node | grep -A 10 "Allocated resources"
+```
+
+### When to Use kind vs Docker Compose
+
+| Scenario | Use |
+|----------|-----|
+| Day-to-day data engineering / DAG development | Docker Compose (`make up`) |
+| Testing a new Helm chart or K8s manifest | kind (`make kube-deploy-one`) |
+| Validating K8s RBAC, secrets, or probe behaviour | kind |
+| Running the full query stack (Trino + Iceberg + MinIO) | Docker Compose (`make query`) |
+| Reproducing a production-like K8s environment | kind |
 
 ### Adding or Rotating Secrets
 

@@ -2,6 +2,42 @@
 
 ## Issues
 
+### Docker Compose profiles
+
+<details>
+<summary>[Issue 1] iceberg-rest fails with "database does not exist" when combining pipeline and query profiles</summary>
+
+- **Issue**:
+
+  ```bash
+  docker compose --profile pipeline --profile query up -d
+  # iceberg-rest crashes: FATAL: database "iceberg" does not exist
+  ```
+
+- **Root cause**:  
+  The `postgres-init` one-shot container (which creates the `iceberg` database) belongs to the `db` and `query` profiles — not `pipeline`. Starting `--profile pipeline --profile query` without `--profile db` skips `postgres-init`, so the `iceberg` database is never created.
+
+- **Resolution**:  
+  Always use `make query` instead of raw profile flags when combining the pipeline and query stacks. The `make query` target explicitly includes `--profile db`, ensuring `postgres-init` runs first.
+
+  ```bash
+  # Correct
+  make query          # starts storage + db + query profiles
+  make pipeline       # can run separately or alongside
+
+  # Broken — skips postgres-init
+  docker compose --profile pipeline --profile query up -d
+  ```
+
+  If you need to run raw compose commands, always include `--profile db`:
+  ```bash
+  docker compose --profile db --profile pipeline --profile query up -d
+  ```
+
+</details>
+
+---
+
 ### Airflow image
 
 <details>

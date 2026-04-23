@@ -23,6 +23,10 @@ x-airflow-common: &airflow-common
   restart: unless-stopped
   profiles: [pipeline]
   user: "${AIRFLOW_UID:-50000}:0"
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
   deploy:
     resources:
       limits:
@@ -33,7 +37,7 @@ x-airflow-common: &airflow-common
         memory: 512M
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${POSTGRES_DB}
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.local}@postgres:5432/${POSTGRES_DB}
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
@@ -55,12 +59,18 @@ x-airflow-common: &airflow-common
     - ${PWD}/compose/container/logs/airflow:/opt/airflow/logs:rw
     - ${PWD}/compose/container/plugins/airflow:/opt/airflow/plugins:ro
     - ${PWD}/scripts:/opt/airflow/scripts/infra:ro
-  # logging: &airflow-logging
-  #   driver: fluentd
-  #   options:
-  #     fluentd-address: "localhost:${FLUENTD_PORT:-24224}"
-  #     fluentd-async:   "true"
-  #     tag:             "airflow.{{.Name}}"   # e.g. airflow.airflow-scheduler-1
+  # Fluentd log driver — active when `--profile logging` is also started.
+  # fluentd-async: "true" means airflow containers start even if fluentd is
+  # temporarily unreachable; Docker buffers locally and retries the connection.
+  # The address is localhost:24224 because Docker's log driver runs on the HOST
+  # (not inside the container network) and connects to fluentd via its host port.
+  # To enable: start with `make up PROFILE=storage,logging,pipeline`
+  logging: &airflow-logging
+    driver: fluentd
+    options:
+      fluentd-address: "localhost:${FLUENTD_PORT:-24224}"
+      fluentd-async:   "true"
+      tag:             "airflow.{{.Name}}"   # e.g. airflow.airflow-scheduler-1
   depends_on: &airflow-common-depends
     postgres:
       condition: service_healthy
@@ -71,15 +81,7 @@ x-airflow-healthcheck: &airflow-healthcheck
   retries: 5
   start_period: 45s
 
-# Fluentd logging driver — applied to every airflow service.
-# fluentd-async: "true" means containers start even if fluentd
-# is temporarily unreachable; logs buffer locally until reconnect.
-# x-airflow-logging: &airflow-logging
-#   driver: fluentd
-#   options:
-#     fluentd-address: "localhost:${FLUENTD_PORT:-24224}"
-#     fluentd-async:   "true"
-#     tag:             "airflow.{{.Name}}"   # e.g. airflow.airflow-scheduler-1
+
 
 # --------------- Services -----------------------------------
 services:
@@ -96,24 +98,30 @@ services:
           echo "⏳ Running DB migrations..."
           airflow db migrate
 
-          echo "👤 Creating admin user..."
-          airflow users create \
-            --username "${AIRFLOW_ADMIN_USER:-admin}" \
-            --password "${AIRFLOW_ADMIN_PASSWORD:-admin}" \
-            --firstname Admin \
-            --lastname User \
-            --role Admin \
-            --email "${AIRFLOW_ADMIN_EMAIL:-admin@example.com}" \
-            || true
+          echo "👤 Creating admin user (skips if already exists)..."
+          if ! airflow users list 2>/dev/null | grep -qF "${AIRFLOW_ADMIN_USER:-admin}"; then
+            airflow users create \
+              --username "${AIRFLOW_ADMIN_USER:-admin}" \
+              --password "${AIRFLOW_ADMIN_PASSWORD:-admin}" \
+              --firstname Admin \
+              --lastname User \
+              --role Admin \
+              --email "${AIRFLOW_ADMIN_EMAIL:-admin@example.com}"
+          else
+            echo "   ↳ user '${AIRFLOW_ADMIN_USER:-admin}' already exists — skipping"
+          fi
 
-          echo "🔗 Registering airflow_api connection..."
-          airflow connections add "airflow_api" \
-            --conn-type "http" \
-            --conn-host "airflow-api-server" \
-            --conn-port "8080" \
-            --conn-login "${AIRFLOW_ADMIN_USER:-admin}" \
-            --conn-password "${AIRFLOW_ADMIN_PASSWORD:-admin}" \
-            || true
+          echo "🔗 Registering airflow_api connection (skips if already exists)..."
+          if ! airflow connections get airflow_api >/dev/null 2>&1; then
+            airflow connections add "airflow_api" \
+              --conn-type "http" \
+              --conn-host "airflow-api-server" \
+              --conn-port "8080" \
+              --conn-login "${AIRFLOW_ADMIN_USER:-admin}" \
+              --conn-password "${AIRFLOW_ADMIN_PASSWORD:-admin}"
+          else
+            echo "   ↳ connection 'airflow_api' already exists — skipping"
+          fi
 
           echo "✅ Init complete."
     healthcheck:

@@ -34,6 +34,10 @@ services:
     # WireMock flags — MUST be a YAML list, not a folded scalar (> block).
     # A folded scalar collapses to a single string that Docker passes as one
     # argument token; WireMock can't parse it and silently ignores all flags.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     command:
       - --verbose
       - --global-response-templating
@@ -46,6 +50,14 @@ services:
       - ${BASE_DIR}/../compose/wiremock/mappings:/home/wiremock/mappings:ro
       # Response body files referenced by bodyFileName in stub definitions.
       - ${BASE_DIR}/../compose/wiremock/__files:/home/wiremock/__files:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "0.2"
+          memory: 256M
+        reservations:
+          cpus: "0.05"
+          memory: 64M
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/__admin/health | grep -q UP"]
       interval: 10s
