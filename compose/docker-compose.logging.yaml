@@ -22,11 +22,15 @@ services:
     build:
       context: ./fluentd
       dockerfile: Dockerfile
-    image: fluentd-local:latest      # cached after first build
-    profiles: 
+    image: fluentd-local:${FLUENTD_IMAGE_TAG:-1.0}  # bump FLUENTD_IMAGE_TAG in .env on Dockerfile changes
+    profiles:
       - logging
       # - pipeline  # logging is failing for airflow
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
       # Passed through to fluent.conf via Ruby ENV interpolation
       MINIO_ROOT_USER:     ${MINIO_ROOT_USER:-minioadmin}
@@ -39,6 +43,14 @@ services:
     ports:
       - "${FLUENTD_PORT:-24224}:24224"
       - "${FLUENTD_PORT:-24224}:24224/udp"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
     depends_on:
       minio:
         condition: service_healthy

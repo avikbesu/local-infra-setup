@@ -35,6 +35,10 @@ services:
     container_name: iceberg-rest
     profiles: [query]
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     depends_on:
       postgres-init:                        # iceberg DB must exist first
         condition: service_completed_successfully
@@ -61,6 +65,14 @@ services:
       # JAVA_TOOL_OPTIONS: "-Dlogback.configurationFile=/logback.xml"
     # volumes:
     #   - ./iceberg-rest/logback.xml:/opt/logback.xml:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 256M
     ports:
       - "${ICEBERG_REST_PORT:-8181}:8181"
     healthcheck:
@@ -79,6 +91,10 @@ services:
     container_name: trino
     profiles: [query]
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     depends_on:
       iceberg-rest:
         condition: service_healthy
@@ -88,6 +104,14 @@ services:
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set in .env.local}
       AWS_REGION:            ${AWS_REGION:-us-east-1}
       MINIO_DEFAULT_BUCKET:  ${MINIO_DEFAULT_BUCKET:-iceberg-warehouse}
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
     ports:
       - "${TRINO_PORT:-8080}:8080"
     volumes:

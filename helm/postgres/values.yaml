@@ -1,15 +1,21 @@
 # ============================================================
 # PostgreSQL — Helm Chart Values  (bitnami/postgresql)
 # Namespace: db
-# Accessed by Airflow as: postgres.db.svc.cluster.local:5432
+# Accessed by Airflow as: postgres-postgresql.db.svc.cluster.local:5432
+#
+# Secrets: K8s Secret 'postgres-credentials' in namespace 'db'
+#   created by `make kube-secrets` before `make kube-deploy`
+#   Keys:  password          → auth.username user
+#          postgres-password → postgres superuser
 # ============================================================
 
 auth:
   username: airflow
-  password: airflow
   database: airflow
-  # Also create a superuser for admin tasks
-  postgresPassword: postgres
+  existingSecret: postgres-credentials
+  secretKeys:
+    adminPasswordKey: postgres-password
+    userPasswordKey: password
 
 primary:
   service:
@@ -30,12 +36,31 @@ primary:
       cpu: 100m
       memory: 256Mi
 
-  # Expose as a predictable service name: postgres.db.svc.cluster.local
-  # The release name must be `postgres` when running:
-  #   helm install postgres bitnami/postgresql -n db -f helm/postgres/values.yaml
+  readinessProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
 
 readReplicas:
   replicaCount: 0
 
 backup:
   enabled: false
+
+# ── Init scripts ──────────────────────────────────────────────
+# Creates the iceberg catalog database in addition to the default
+# airflow database. Bitnami executes .sh files during first-start
+# initdb. The script is idempotent: no-ops if iceberg already exists.
+initdbScripts:
+  00-iceberg.sh: |
+    #!/bin/sh
+    set -e
+    DB_EXISTS=$(psql --username "$POSTGRES_USER" -Atc \
+      "SELECT 1 FROM pg_database WHERE datname = 'iceberg'")
+    if [ "$DB_EXISTS" != "1" ]; then
+      psql --username "$POSTGRES_USER" -c "CREATE DATABASE iceberg"
+      echo "Created database: iceberg"
+    else
+      echo "Database iceberg already exists, skipping."
+    fi

@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# =============================================================================
+# .githooks/pre-commit
+# Activated via: git config core.hooksPath .githooks
+# Run by: make setup  (sets hooksPath automatically)
+#
+# Checks:
+#   1. Block .env.local from being staged (contains real secrets)
+#   2. Validate all docker-compose files parse correctly (make lint)
+#   3. Scan staged files for hardcoded secret patterns
+# =============================================================================
+set -euo pipefail
+
+RED='\033[0;31m'
+YLW='\033[0;33m'
+GRN='\033[0;32m'
+RST='\033[0m'
+
+fail() { echo -e "${RED}✗ pre-commit: $*${RST}" >&2; exit 1; }
+warn() { echo -e "${YLW}⚠ pre-commit: $*${RST}" >&2; }
+ok()   { echo -e "${GRN}✓ pre-commit: $*${RST}"; }
+
+STAGED=$(git diff --cached --name-only 2>/dev/null || true)
+
+# ── 1. Block .env.local ───────────────────────────────────────────────────────
+if echo "$STAGED" | grep -qE '^\.env\.local$'; then
+  fail ".env.local must never be committed — it contains real secrets.\n  Remove it from staging: git restore --staged .env.local"
+fi
+
+# ── 2. Validate docker-compose files ─────────────────────────────────────────
+COMPOSE_STAGED=$(echo "$STAGED" | grep -E 'docker-compose.*\.yaml$' || true)
+if [[ -n "$COMPOSE_STAGED" ]]; then
+  if command -v docker &>/dev/null; then
+    echo "  Running make lint (compose file changed)..."
+    make lint --no-print-directory \
+      || fail "docker-compose validation failed. Fix errors before committing."
+    ok "compose config valid"
+  else
+    warn "docker not found — skipping compose lint"
+  fi
+fi
+
+# ── 3. Scan staged files for hardcoded secret patterns ───────────────────────
+# Skip binary files, lock files, and known-safe files.
+SKIP_PATTERN='\.(png|jpg|gif|ico|woff|ttf|lock|sum)$|^\.githooks/|^\.git/'
+
+SECRET_PATTERN='(password|secret|key|token|credential)\s*[=:]\s*[^$\{\(<"'\''`][^$\{\(<]{3,}'
+
+found_secrets=false
+while IFS= read -r file; do
+  # skip deleted files and binary/generated files
+  [[ -f "$file" ]] || continue
+  echo "$file" | grep -qiE "$SKIP_PATTERN" && continue
+
+  if git show ":$file" 2>/dev/null \
+    | grep -inE "$SECRET_PATTERN" \
+    | grep -vE '(\$\{|\$\(|example|changeme|placeholder|your_|<|>|#)' \
+    | grep -q .; then
+    warn "Possible hardcoded secret in: $file"
+    warn "  Review the file — use .env.local / config/secrets.yaml for real values."
+    found_secrets=true
+  fi
+done <<< "$STAGED"
+
+if $found_secrets; then
+  echo ""
+  echo "  If this is a false positive, commit with:"
+  echo "    git commit --no-verify   (use sparingly — only for confirmed false positives)"
+  exit 1
+fi
+
+ok "no hardcoded secrets detected"
+ok "pre-commit checks passed"

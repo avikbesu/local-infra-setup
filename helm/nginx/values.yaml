@@ -1,0 +1,117 @@
+# ============================================================
+# Nginx — Helm Chart Values  (bitnami/nginx)
+# Namespace: misc
+# Role: reverse proxy / unified entry point for cluster services
+#
+# Routes (all via http://localhost:8080 after port-forward):
+#   /airflow/   → airflow-api-server.af.svc.cluster.local:8080
+#   /minio/     → minio-console.s3.svc.cluster.local:9001
+#   /minio-api/ → minio.s3.svc.cluster.local:9000
+#   /mock/      → wiremock.misc.svc.cluster.local (port 80)
+#   /health     → nginx stub (liveness)
+# ============================================================
+
+# ── Resources ─────────────────────────────────────────────────
+resources:
+  limits:
+    cpu: 200m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# ── Service ───────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  ports:
+    http: 80
+
+# ── Container port (bitnami nginx runs as non-root on 8080) ───
+containerPorts:
+  http: 8080
+
+# ── Custom server block ────────────────────────────────────────
+# Replaces the default bitnami welcome page.
+# Upstreams use K8s FQDN — resolved by CoreDNS at pod start.
+# Static proxy_pass (no `set $upstream` variable) is safe here
+# because nginx depends on airflow and wiremock being deployed first.
+serverBlock: |-
+  server {
+    listen 8080;
+    server_name localhost;
+
+    # Use CoreDNS so upstream hostnames resolve lazily at request time.
+    # This lets nginx start and serve /health even if some upstreams are not yet deployed.
+    resolver kube-dns.kube-system.svc.cluster.local valid=30s ipv6=off;
+
+    proxy_http_version  1.1;
+    proxy_set_header    Host              $host;
+    proxy_set_header    X-Real-IP         $remote_addr;
+    proxy_set_header    X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header    X-Forwarded-Proto $scheme;
+    proxy_set_header    Upgrade           $http_upgrade;
+    proxy_set_header    Connection        "upgrade";
+
+    # Security headers
+    add_header X-Content-Type-Options  "nosniff"                        always;
+    add_header X-Frame-Options         "SAMEORIGIN"                     always;
+    add_header Referrer-Policy         "strict-origin-when-cross-origin" always;
+    add_header X-XSS-Protection        "0"                              always;
+
+    # ── Liveness ────────────────────────────────────────────────
+    location = /health {
+      access_log off;
+      return 200 "ok\n";
+      add_header Content-Type text/plain;
+    }
+
+    # ── Airflow UI + REST API ──────────────────────────────────
+    location /airflow/ {
+      set $upstream_airflow http://airflow-api-server.af.svc.cluster.local:8080;
+      proxy_pass $upstream_airflow/;
+      proxy_read_timeout 120s;
+    }
+
+    # ── MinIO Console (WebSocket-aware) ───────────────────────
+    # NOTE: returns 502 when MinIO is disabled in helm-components.yaml.
+    # Enable MinIO first: make kube-deploy-one COMPONENT=minio
+    location /minio/ {
+      set $upstream_minio_console http://minio-console.s3.svc.cluster.local:9001;
+      proxy_pass $upstream_minio_console/;
+      proxy_set_header X-NginX-Proxy true;
+    }
+
+    # ── MinIO S3 API ──────────────────────────────────────────
+    # NOTE: returns 502 when MinIO is disabled in helm-components.yaml.
+    location /minio-api/ {
+      set $upstream_minio_api http://minio.s3.svc.cluster.local:9000;
+      proxy_pass $upstream_minio_api/;
+      client_max_body_size 0;
+      proxy_read_timeout 300s;
+    }
+
+    # ── WireMock mock API ─────────────────────────────────────
+    location /mock/ {
+      set $upstream_wiremock http://wiremock.misc.svc.cluster.local;
+      proxy_pass $upstream_wiremock/;
+    }
+  }
+
+# ── Health probe ──────────────────────────────────────────────
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 5
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 5

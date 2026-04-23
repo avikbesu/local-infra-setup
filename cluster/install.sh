@@ -1,10 +1,18 @@
-
+#!/usr/bin/env bash
+# Install kind — Kubernetes in Docker
 # https://kind.sigs.k8s.io/docs/user/using-wsl2/
 # https://kind.sigs.k8s.io/docs/user/quick-start/
+set -euo pipefail
 
-# For AMD64 / x86_64
-[ $(uname -m) = x86_64 ] && curl -Lo ~/kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
-# For ARM64
-[ $(uname -m) = aarch64 ] && curl -Lo ~/kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-arm64
+KIND_VERSION="v0.27.0"
+ARCH="$(uname -m)"
+
+case "$ARCH" in
+  x86_64)  curl -Lo ~/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64" ;;
+  aarch64) curl -Lo ~/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-arm64" ;;
+  *)       echo "Unsupported architecture: $ARCH" >&2; exit 1 ;;
+esac
+
 chmod +x ~/kind
 sudo mv ~/kind /usr/local/bin/kind
+echo "kind ${KIND_VERSION} installed to /usr/local/bin/kind"

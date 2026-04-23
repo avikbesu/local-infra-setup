@@ -14,12 +14,14 @@
 services:
   postgres:
     image: postgres:${POSTGRES_VERSION:-16-alpine}
-    profiles: 
+    profiles:
       - "db"
       - "pipeline"
       - "query"
     container_name: postgres
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     environment:
       POSTGRES_USER:     ${POSTGRES_USER:-airflow}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.local}
@@ -59,9 +61,19 @@ services:
   #       condition: service_completed_successfully
   postgres-init:
     image: postgres:${POSTGRES_VERSION:-16-alpine}
-    profiles: 
+    security_opt:
+      - no-new-privileges:true
+    profiles:
       - "db"
-      # - "pipeline"
+      # pipeline profile intentionally excluded:
+      #   Airflow only uses the `airflow` DB, which postgres creates on startup.
+      #   The `iceberg` DB (created here) is only required by iceberg-rest (query profile).
+      #   Including this in `pipeline` would add an unnecessary wait on every `make pipeline`.
+      #
+      # IMPORTANT: always use `make query` (not raw --profile pipeline --profile query)
+      # when combining both stacks — `make query` explicitly includes --profile db so
+      # this init container runs. Raw --profile pipeline --profile query skips it, and
+      # iceberg-rest will fail with "database does not exist".
       - "query"
     restart: no
     depends_on:

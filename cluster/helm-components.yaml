@@ -2,7 +2,28 @@
 # Helm Component Registry
 # All Kubernetes / Helm-based components for the local kind cluster.
 #
-# Fields per component:
+# --- Deployment strategy ---
+# Docker Compose is the primary local dev path. The kind cluster is a
+# secondary deployment that mirrors a subset of the compose stack in
+# Kubernetes, primarily for testing Helm charts and K8s-specific behaviour.
+#
+# Default enabled set:  postgres + airflow + wiremock + nginx
+# Disabled by default:  minio  (see inline comment — requires extra setup)
+#
+# To bring up the full cluster:
+#   make kube-up           # deploys all enabled components in dep order
+#   make kube-port-forward # exposes services on localhost
+#
+# To enable a disabled component:
+#   1. Set enabled: true below
+#   2. Follow any additional setup steps in the inline comment
+#   3. Run: make kube-deploy-one COMPONENT=<name>
+#
+# Resource budget for a single-node kind cluster (recommended host minimums):
+#   Enabled set (postgres+airflow+wiremock+nginx): 4 vCPU / 6 GB RAM
+#   Full set including minio:                      5 vCPU / 8 GB RAM
+#
+# --- Field reference ---
 #   name          — Helm release name (also used as dependency key)
 #   chart         — <repo>/<chart-name>
 #   helm_repo     — Helm repo alias
@@ -11,9 +32,11 @@
 #   values_file   — Path to values.yaml (relative to repo root)
 #   wait_timeout  — Helm --wait --timeout value  (e.g. "5m", "10m")
 #   depends_on    — List of component names that must be deployed first
-#   pre_manifests — Kubectl manifests to apply BEFORE `helm install`
-#   port_forward  — List of {service, local_port, remote_port} entries
-#   enabled       — true | false  (only enabled components are acted on)
+#   pre_manifests — Kubectl manifests applied with `kubectl apply` BEFORE helm install
+#                   (use for PVs, PVCs, CRDs, or any resource the chart cannot create itself)
+#   port_forward  — List of {service, local_port, remote_port} entries used by
+#                   `make kube-port-forward` to expose services on localhost
+#   enabled       — true | false  (only enabled components are deployed/removed/forwarded)
 # =============================================================================
 
 components:
@@ -28,15 +51,18 @@ components:
     wait_timeout: "5m"
     depends_on: []
     pre_manifests: []
-    port_forward: []
-    enabled: false
+    port_forward:
+      - service: postgres-postgresql
+        local_port: 5432
+        remote_port: 5432
+    enabled: true
 
   # ---------------------------------------------------------------------------
   - name: airflow
     chart: apache-airflow/airflow
     helm_repo: apache-airflow
     helm_repo_url: https://airflow.apache.org
-    namespace: airflow
+    namespace: af
     values_file: helm/airflow/values.yaml
     wait_timeout: "15m"
     depends_on:
@@ -44,6 +70,8 @@ components:
     pre_manifests:
       - helm/airflow/dags_pv.yaml
       - helm/airflow/dags_pvc.yaml
+      - helm/airflow/logs_pv.yaml
+      - helm/airflow/logs_pvc.yaml
     port_forward:
       - service: airflow-api-server
         local_port: 8080
@@ -51,11 +79,20 @@ components:
     enabled: true
 
   # ---------------------------------------------------------------------------
+  # MinIO is disabled by default. To enable:
+  #   1. Ensure MINIO_ROOT_USER and MINIO_ROOT_PASSWORD are in config/secrets.yaml
+  #      and generated into .env.local via `make secrets`  (already present)
+  #   2. Run `make kube-secrets` — creates s3/minio-credentials Secret  (auto)
+  #   3. Set `enabled: true` below, then: make kube-deploy-one COMPONENT=minio
+  #
+  # helm/minio/values.yaml already uses existingSecret: minio-credentials.
+  # helm/nginx/values.yaml uses lazy DNS resolution so /minio/ routes return
+  # 502 (not crash) when MinIO is disabled — enable MinIO to activate them.
   - name: minio
     chart: minio/minio
     helm_repo: minio
     helm_repo_url: https://charts.min.io/
-    namespace: minio
+    namespace: s3
     values_file: helm/minio/values.yaml
     wait_timeout: "5m"
     depends_on: []
@@ -67,4 +104,38 @@ components:
       - service: minio
         local_port: 9000
         remote_port: 9000
-    enabled: false
+    enabled: false  # see enablement checklist above
+
+  # ---------------------------------------------------------------------------
+  - name: wiremock
+    chart: wiremock/wiremock
+    helm_repo: wiremock
+    helm_repo_url: https://wiremock.github.io/helm-charts/
+    namespace: misc
+    values_file: helm/wiremock/values.yaml
+    wait_timeout: "3m"
+    depends_on: []
+    pre_manifests: []
+    port_forward:
+      - service: wiremock
+        local_port: 8090
+        remote_port: 80
+    enabled: true
+
+  # ---------------------------------------------------------------------------
+  - name: nginx
+    chart: bitnami/nginx
+    helm_repo: bitnami
+    helm_repo_url: https://charts.bitnami.com/bitnami
+    namespace: misc
+    values_file: helm/nginx/values.yaml
+    wait_timeout: "3m"
+    depends_on:
+      - airflow
+      - wiremock
+    pre_manifests: []
+    port_forward:
+      - service: nginx
+        local_port: 8080
+        remote_port: 80
+    enabled: true
