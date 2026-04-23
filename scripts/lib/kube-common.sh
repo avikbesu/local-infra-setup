@@ -96,6 +96,40 @@ component_port_forwards() {
     "$HELM_COMPONENTS_CONFIG" 2>/dev/null
 }
 
+# ── Pre-flight file-reference check ──────────────────────────────────────────
+# Asserts that the values_file and every pre_manifest for ALL enabled components
+# exist on disk before any helm operation starts.  Call once at the top of
+# kube-deploy.sh so failures are reported together, not mid-deployment.
+validate_enabled_files() {
+  local count errs=0
+  count=$(count_enabled)
+  for i in $(seq 0 $(( count - 1 ))); do
+    local name values_rel values_abs manifest_count m mrel mabs
+    name=$(enabled_field "$i" name)
+    values_rel=$(enabled_field "$i" values_file)
+    values_abs="${REPO_ROOT}/${values_rel}"
+
+    if [[ ! -f "$values_abs" ]]; then
+      log_error "Component '$name': values_file not found: $values_rel"
+      errs=$(( errs + 1 ))
+    fi
+
+    manifest_count=$(yq "[.components[] | select(.enabled == true)][$i].pre_manifests | length" \
+      "$HELM_COMPONENTS_CONFIG" 2>/dev/null || echo 0)
+    for m in $(seq 0 $(( manifest_count - 1 ))); do
+      mrel=$(yq "[.components[] | select(.enabled == true)][$i].pre_manifests[$m]" \
+        "$HELM_COMPONENTS_CONFIG" 2>/dev/null)
+      [[ "$mrel" == "null" || -z "$mrel" ]] && continue
+      mabs="${REPO_ROOT}/${mrel}"
+      if [[ ! -f "$mabs" ]]; then
+        log_error "Component '$name': pre_manifest not found: $mrel"
+        errs=$(( errs + 1 ))
+      fi
+    done
+  done
+  [[ $errs -eq 0 ]] || die "Pre-flight check failed — $errs missing file(s). Aborting before any deploy."
+}
+
 # ── Topological sort ──────────────────────────────────────────────────────────
 # Writes an ordered list of component *indices* (into the enabled array) to stdout.
 # Uses Kahn's algorithm; exits non-zero on cycle detection.
