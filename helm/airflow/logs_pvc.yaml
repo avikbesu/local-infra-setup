@@ -1,24 +1,24 @@
 # ============================================================
-# Airflow DAGs — PersistentVolumeClaim
-# Binds to airflow-dags-pv (hostPath → ./dags submodule root)
-# Must be applied in the `airflow` namespace BEFORE helm install.
+# Airflow Logs — PersistentVolumeClaim
+# Binds to airflow-logs-pv (hostPath → compose/container/logs/airflow)
+# Must be applied in the `af` namespace BEFORE helm install.
 # ============================================================
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: airflow-dags-pvc
+  name: airflow-logs-pvc
   namespace: af
   labels:
     app: airflow
-    component: dags
+    component: logs
 spec:
   accessModes:
     - ReadWriteMany
   storageClassName: standard
   resources:
     requests:
-      storage: 1Gi
+      storage: 5Gi
   selector:
     matchLabels:
       app: airflow
-      component: dags
+      component: logs

@@ -2,6 +2,7 @@
 # Kind Cluster Configuration
 # Single control-plane node with:
 #   - hostPath mount for DAGs (./dags → /mnt/airflow-dags)
+#   - hostPath mount for logs (./compose/container/logs/airflow → /mnt/airflow-logs)
 #   - NodePort range exposed for optional direct access
 # ============================================================
 kind: Cluster
@@ -29,3 +30,5 @@ nodes:
     extraMounts:
       - hostPath: ./dags
         containerPath: /mnt/airflow-dags
+      - hostPath: ./compose/container/logs/airflow
+        containerPath: /mnt/airflow-logs

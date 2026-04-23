@@ -1,0 +1,65 @@
+# ============================================================
+# WireMock — Helm Chart Values  (wiremock/wiremock)
+# Namespace: misc
+# Stubs: ConfigMap misc/wiremock-stubs, built from
+#        compose/wiremock/mappings/ by `make kube-secrets`
+# ============================================================
+
+image:
+  repository: wiremock/wiremock
+  tag: "3.10.0-1"
+  pullPolicy: IfNotPresent
+
+# ── CLI flags ─────────────────────────────────────────────────
+# Must be a list — a single string is not split by WireMock CLI.
+args:
+  - "--verbose"
+  - "--global-response-templating"
+  - "--disable-gzip"
+
+# ── Service ───────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 80
+
+# ── Resources ─────────────────────────────────────────────────
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 128Mi
+
+# ── Health probes ─────────────────────────────────────────────
+livenessProbe:
+  httpGet:
+    path: /__admin/health
+    port: 8080
+  initialDelaySeconds: 20
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 5
+
+readinessProbe:
+  httpGet:
+    path: /__admin/health
+    port: 8080
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 5
+
+# ── Stub mappings ─────────────────────────────────────────────
+# ConfigMap misc/wiremock-stubs is created dynamically from
+# compose/wiremock/mappings/ by `make kube-secrets`.
+# Adding a new stub file → re-run `make kube-secrets` → `make kube-stubs-reload`.
+volumes:
+  - name: stubs
+    configMap:
+      name: wiremock-stubs
+
+volumeMounts:
+  - name: stubs
+    mountPath: /home/wiremock/mappings
+    readOnly: true

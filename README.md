@@ -375,7 +375,7 @@ The root `makefile` includes sub-makefiles from `scripts/make/`:
 
 1. **Airflow tasks failing**: Dependency order matters — `postgres → airflow-init → airflow-api-server → airflow-scheduler`
 2. **Iceberg REST logs credentials**: Mitigated by custom `entrypoint.sh` filtering; not fully resolved via JVM logging config
-3. **Iceberg REST healthcheck**: Uses TCP bash check instead of curl (curl absent in tabulario/iceberg-rest minimal JVM image)
+3. **Iceberg REST logs credentials on startup**: Mitigated by `compose/iceberg-rest/entrypoint.sh`; JVM logging config (logback.xml) approach was attempted but not fully resolved — see issue #31
 4. **Trino `query.max-total-memory-per-node`**: Removed — property was defunct in Trino 435
 
 ---

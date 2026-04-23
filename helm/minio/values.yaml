@@ -10,9 +10,9 @@
 mode: standalone
 
 # ── Credentials ───────────────────────────────────────────────
-# Reference env vars from .env.local — never hardcode secrets here.
-rootUser: "minio"
-rootPassword: "minio123"
+# Secret created by `make kube-secrets` (scripts/kube-secrets.sh).
+# Keys: rootUser, rootPassword — sourced from .env.local via MINIO_ROOT_USER/PASSWORD.
+existingSecret: minio-credentials
 
 # ── Persistence ───────────────────────────────────────────────
 persistence:

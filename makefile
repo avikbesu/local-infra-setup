@@ -26,6 +26,7 @@ include scripts/make/query.mk
 include scripts/make/mock.mk
 include scripts/make/ollama.mk
 include scripts/make/proxy.mk
+include scripts/make/security.mk
 
 # ── Read ICEBERG_REST_VERSION from .env (no -include, avoids .env remake loop) ─
 ICEBERG_REST_VERSION := $(strip $(shell grep -s '^ICEBERG_REST_VERSION=' .env | cut -d= -f2))
@@ -56,13 +57,14 @@ DC := docker compose $(ENV_FILE_FLAGS) $(PROFILE_FLAGS) \
       $(foreach f,$(COMPOSE_FILE_LIST),-f $(f))
 
 .PHONY: help up down build restart logs shell ps clean prune lint health smoke-test \
-        kind-up kind-down kind-status compose-up compose-down .env airflow-dirs
+        kind-up kind-down kind-status compose-up compose-down .env airflow-dirs \
+        secrets rotate sync dagcheck build-query query pipeline
 
 # ── Help ────────────────────────────────────────────────────
 default: help
 help: ## Show this help
 	@echo ""
-	@echo "  Usage: make <target> [USE_KIND=true] [ENV=dev|prod|ci]"
+	@echo "  Usage: make <target> [USE_KIND=true] [PROFILE=<profile>]"
 	@echo ""
 	@grep -Eh '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -208,7 +210,7 @@ pipeline: .env airflow-dirs ## Start pipeline stack (Airflow + Postgres)
 		up -d --remove-orphans 
 	@echo ""
 	@echo "🚀 Pipeline stack is up:"
-	@echo "   Airflow UI    → http://localhost:$${AIRFLOW_PORT:-8080}"
+	@echo "   Airflow UI    → http://localhost:$${AIRFLOW_API_SERVER_PORT:-8081}"
 	@echo "   Postgres      → localhost:$${POSTGRES_PORT:-5432} (dev only)"
 	@echo ""
 
@@ -276,12 +278,16 @@ kube-stop: ## Delete the Kind cluster (destroys all workloads)
 ##@ Kubernetes — Helm Components
 # =============================================================================
 
+.PHONY: kube-secrets
+kube-secrets: .env.local kube-start ## Create Kubernetes Secrets in db and airflow namespaces from .env.local
+	@bash $(SCRIPTS_DIR)/kube-secrets.sh
+
 .PHONY: kube-deploy
-kube-deploy: kube-start helm-repos ## Deploy all enabled components (dependency-ordered)
+kube-deploy: kube-start helm-repos kube-secrets ## Deploy all enabled components (dependency-ordered)
 	@bash $(SCRIPTS_DIR)/kube-deploy.sh
 
 .PHONY: kube-deploy-one
-kube-deploy-one: kube-start helm-repos ## Deploy a single component  (COMPONENT=postgres)
+kube-deploy-one: kube-start helm-repos kube-secrets ## Deploy a single component  (COMPONENT=postgres)
 	@[[ -n "$(COMPONENT)" ]] || { echo "Usage: make kube-deploy-one COMPONENT=<n>"; exit 1; }
 	@bash $(SCRIPTS_DIR)/kube-deploy.sh $(COMPONENT)
 
@@ -325,3 +331,9 @@ kube-port-forward-stop: ## Kill all active kubectl port-forward processes
 .PHONY: kube-port-forward-status
 kube-port-forward-status: ## List running port-forward processes
 	@bash $(SCRIPTS_DIR)/kube-port-forward.sh status
+
+.PHONY: kube-stubs-reload
+kube-stubs-reload: ## Rebuild wiremock-stubs ConfigMap from compose/wiremock/mappings/ and restart WireMock pod
+	@bash $(SCRIPTS_DIR)/kube-secrets.sh
+	@kubectl rollout restart deployment/wiremock -n misc
+	@echo "  ↻ WireMock restarting with updated stubs"

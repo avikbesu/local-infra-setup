@@ -1,0 +1,27 @@
+# ============================================================
+# Airflow Logs — PersistentVolume
+# Uses a hostPath backed by a kind extraMount so task logs
+# survive pod restarts and can be read from the host.
+#
+# kind-config.yaml must include:
+#   extraMounts:
+#     - hostPath: ./compose/container/logs/airflow
+#       containerPath: /mnt/airflow-logs
+# ============================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: airflow-logs-pv
+  labels:
+    app: airflow
+    component: logs
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: standard
+  hostPath:
+    path: /mnt/airflow-logs
+    type: DirectoryOrCreate

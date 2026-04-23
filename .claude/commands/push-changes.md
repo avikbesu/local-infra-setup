@@ -59,7 +59,6 @@ Before staging, scan the list of files to be committed. If any look like they co
 - Read `git diff --cached` to understand what changed
 - Follow Conventional Commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`
 - One-line subject (imperative mood, ≤72 chars); add a body only if the change warrants explanation
-- Append the co-author trailer
 
 ### 6. Commit
 
@@ -68,8 +67,6 @@ git commit -m "$(cat <<'EOF'
 <subject line>
 
 <optional body>
-
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 EOF
 )"
 ```

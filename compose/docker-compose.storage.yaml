@@ -7,10 +7,12 @@
 services:
   minio:
     image: minio/minio:${MINIO_VERSION:-latest}
-    profiles: 
+    profiles:
       - storage
       # - pipeline
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set in .env.local}
@@ -43,20 +45,28 @@ services:
   #   airflow-data          ← General Airflow data / XCom storage
   #   iceberg-warehouse     ← Iceberg REST catalog warehouse root
   minio-init:
-    image: minio/mc:latest
+    image: minio/mc:${MC_VERSION}
     profiles:
       - storage
     restart: no
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       minio:
         condition: service_healthy
     environment:
+      MINIO_ROOT_USER:     ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set in .env.local}
       MINIO_BUCKETS: ${MINIO_BUCKETS:-airflow-logs,airflow-data,iceberg-warehouse}
     entrypoint: >
       /bin/sh -c "
-        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set in .env.local};
-        for bucket in $$(echo $$MINIO_BUCKETS | tr ',' ' '); do
-          mc mb --ignore-existing local/$$bucket;
+        set -e;
+        mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD;
+        IFS=',';
+        for bucket in $$MINIO_BUCKETS; do
+          bucket=$$(echo \"$$bucket\" | tr -d ' ');
+          [ -z \"$$bucket\" ] && continue;
+          mc mb --ignore-existing \"local/$$bucket\";
           echo \"  ✔ bucket ready: $$bucket\";
         done;
         echo 'All buckets ready.';
