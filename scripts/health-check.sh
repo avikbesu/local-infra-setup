@@ -1,30 +1,47 @@
 #!/usr/bin/env bash
+# =============================================================================
+# scripts/health-check.sh
+# Reports health status for all running Docker Compose services.
+# Exits 0 when all health-checked services are healthy, 1 otherwise.
+#
+# Usage:  ./scripts/health-check.sh   (or: make health)
+# =============================================================================
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
-COMPOSE_BASE="docker-compose.yml"
-COMPOSE_OVERRIDE="docker-compose.override.yml"
-DC="docker compose -f $COMPOSE_BASE -f $COMPOSE_OVERRIDE"
+require_tool docker
 
-SERVICES=$($DC ps --services 2>/dev/null)
-ALL_HEALTHY=true
+log_step "Docker Compose Health"
 
-echo "🔍 Checking service health..."
+SERVICES=$(docker compose ps --services 2>/dev/null || true)
+
+if [[ -z "$SERVICES" ]]; then
+  log_warn "No running services found."
+  exit 0
+fi
+
+all_healthy=true
+
+while IFS= read -r svc; do
+  status=$(docker compose ps "$svc" --format json 2>/dev/null \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('Health',''))" 2>/dev/null \
+    || true)
+
+  case "${status:-}" in
+    healthy)
+      log_ok "  $svc — healthy" ;;
+    "")
+      log_info "  $svc — no healthcheck" ;;
+    *)
+      log_error "  $svc — $status"
+      all_healthy=false ;;
+  esac
+done <<< "$SERVICES"
+
 echo ""
-
-for svc in $SERVICES; do
-  STATUS=$($DC ps "$svc" --format json 2>/dev/null \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('Health','unknown'))" 2>/dev/null \
-    || echo "no-healthcheck")
-  
-  if [[ "$STATUS" == "healthy" ]]; then
-    echo "  ✅ $svc → $STATUS"
-  elif [[ "$STATUS" == "no-healthcheck" ]]; then
-    echo "  ⚪ $svc → $STATUS (skipped)"
-  else
-    echo "  ❌ $svc → $STATUS"
-    ALL_HEALTHY=false
-  fi
-done
-
-echo ""
-$ALL_HEALTHY && echo "✅ All services healthy" || { echo "❌ Some services are unhealthy"; exit 1; }
+if $all_healthy; then
+  log_ok "All health-checked services are healthy."
+else
+  log_error "One or more services are unhealthy."
+  exit 1
+fi

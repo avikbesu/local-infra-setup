@@ -8,7 +8,7 @@
 #   ./scripts/check-deps.sh --install  # check and install missing tools
 # =============================================================================
 set -euo pipefail
-source "$(dirname "$0")/lib/kube-common.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
 INSTALL_MISSING=false
 [[ "${1:-}" == "--install" ]] && INSTALL_MISSING=true
@@ -25,7 +25,8 @@ install_kubectl() {
 install_kind() {
   log_info "Installing kind..."
   local ver
-  ver=$(curl -sL https://api.github.com/repos/kubernetes-sigs/kind/releases/latest | grep tag_name | cut -d'"' -f4)
+  ver=$(curl -sL https://api.github.com/repos/kubernetes-sigs/kind/releases/latest \
+    | grep tag_name | cut -d'"' -f4)
   curl -sLo /tmp/kind "https://kind.sigs.k8s.io/dl/${ver}/kind-linux-amd64"
   chmod +x /tmp/kind && sudo mv /tmp/kind /usr/local/bin/kind
 }
@@ -38,13 +39,14 @@ install_helm() {
 install_yq() {
   log_info "Installing yq (mikefarah) to ~/.local/bin ..."
   local ver
-  ver=$(curl -sL https://api.github.com/repos/mikefarah/yq/releases/latest | grep tag_name | cut -d'"' -f4)
+  ver=$(curl -sL https://api.github.com/repos/mikefarah/yq/releases/latest \
+    | grep tag_name | cut -d'"' -f4)
   mkdir -p "$HOME/.local/bin"
-  curl -sLo "$HOME/.local/bin/yq" "https://github.com/mikefarah/yq/releases/download/${ver}/yq_linux_amd64"
+  curl -sLo "$HOME/.local/bin/yq" \
+    "https://github.com/mikefarah/yq/releases/download/${ver}/yq_linux_amd64"
   chmod +x "$HOME/.local/bin/yq"
-  # Prepend to PATH for the rest of this shell session so subsequent checks pick up the new binary
   export PATH="$HOME/.local/bin:$PATH"
-  log_ok "  yq installed to ~/.local/bin/yq — add ~/.local/bin to your PATH in ~/.bashrc or ~/.zshrc"
+  log_ok "yq installed to ~/.local/bin — add ~/.local/bin to your PATH in ~/.bashrc"
 }
 
 install_gh() {
@@ -57,27 +59,23 @@ install_gh() {
   cat "$out" | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
   sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
   sudo mkdir -p -m 755 /etc/apt/sources.list.d
-  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] \
+https://cli.github.com/packages stable main" \
     | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
   sudo apt-get update -q && sudo apt-get install -y gh
 }
 
 # ── Check function ─────────────────────────────────────────────────────────────
+# Uses _tool_works() / _tool_version() from lib/common.sh for consistent
+# functional testing (catches broken snap packages on WSL2, etc.).
 check_tool() {
-  local tool="$1"
-  local install_fn="${2:-}"
+  local tool="$1" install_fn="${2:-}"
 
-  if command -v "$tool" &>/dev/null; then
-    local ver
-    # Functionally test the binary — snap packages can be "found" but broken at runtime
-    # (e.g. yq snap on WSL2 fails with XDG_RUNTIME_DIR permission error, exit code 46).
-    if ver=$("$tool" --version 2>/dev/null | head -1) && [[ -n "$ver" ]]; then
-      log_ok "  $tool — $ver"
-      return 0
-    else
-      log_warn "  $tool — found at $(command -v "$tool") but failed to run (broken install?)"
-      # Fall through to install if --install was given
-    fi
+  if command -v "$tool" &>/dev/null && _tool_works "$tool"; then
+    log_ok "  $tool — $(_tool_version "$tool")"
+    return 0
+  elif command -v "$tool" &>/dev/null; then
+    log_warn "  $tool — found at $(command -v "$tool") but failed to execute (broken install?)"
   else
     log_warn "  $tool — NOT FOUND"
   fi
@@ -87,6 +85,7 @@ check_tool() {
   fi
 }
 
+# ── Main ──────────────────────────────────────────────────────────────────────
 log_step "Dependency Check"
 echo ""
 check_tool docker
@@ -98,7 +97,7 @@ check_tool gh         install_gh
 echo ""
 
 if $INSTALL_MISSING; then
-  log_ok "All tools installed."
+  log_ok "All tools checked."
 else
   log_info "Tip: run with --install to auto-install missing tools."
 fi
