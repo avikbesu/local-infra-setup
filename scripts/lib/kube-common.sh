@@ -1,47 +1,21 @@
 #!/usr/bin/env bash
 # =============================================================================
 # scripts/lib/kube-common.sh
-# Shared utilities sourced by every kube-*.sh script.
-# Source with:  source "$(dirname "$0")/lib/kube-common.sh"
+# Kubernetes-specific utilities. Sources lib/common.sh for base logging,
+# error handling, and tool validation.
+#
+# Source with:  source "$(dirname "${BASH_SOURCE[0]}")/lib/kube-common.sh"
 # =============================================================================
 
-# ── Colours ──────────────────────────────────────────────────────────────────
-RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'
-CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
-
-log_info()  { echo -e "${CYAN}[INFO]${RESET}  $*"; }
-log_ok()    { echo -e "${GREEN}[OK]${RESET}    $*"; }
-log_warn()  { echo -e "${YELLOW}[WARN]${RESET}  $*"; }
-log_error() { echo -e "${RED}[ERROR]${RESET} $*" >&2; }
-log_step()  { echo -e "\n${BOLD}── $* ──${RESET}"; }
-
-die() { log_error "$*"; exit 1; }
-
-# ── Repo-root resolution ─────────────────────────────────────────────────────
-# Works when called from anywhere; walks up until makefile is found.
-repo_root() {
-  local dir="${BASH_SOURCE[1]}"
-  dir="$(cd "$(dirname "$dir")" && pwd)"
-  while [[ "$dir" != "/" ]]; do
-    [[ -f "$dir/makefile" || -f "$dir/Makefile" ]] && { echo "$dir"; return; }
-    dir="$(dirname "$dir")"
-  done
-  die "Cannot locate repo root (no makefile found)"
-}
+# ── Base library ─────────────────────────────────────────────────────────────
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 # ── Config file ───────────────────────────────────────────────────────────────
-REPO_ROOT="$(repo_root)"
 HELM_COMPONENTS_CONFIG="${HELM_COMPONENTS_CONFIG:-${REPO_ROOT}/cluster/helm-components.yaml}"
 
 # ── Tool guards ───────────────────────────────────────────────────────────────
-require_tool() {
-  local tool="$1" hint="${2:-}"
-  command -v "$tool" &>/dev/null || die "'$tool' not found.${hint:+ Install: $hint}"
-}
-
 require_yq() {
-  require_tool yq "https://github.com/mikefarah/yq/releases  or  brew install yq  or  snap install yq"
-  # Ensure mikefarah/yq (v4), not python-yq (different syntax)
+  require_tool yq "https://github.com/mikefarah/yq/releases  or  brew install yq"
   local ver
   ver=$(yq --version 2>&1)
   [[ "$ver" == *"mikefarah"* || "$ver" == *"(https://github.com/mikefarah/yq)"* || "$ver" =~ v4\. ]] \
@@ -52,26 +26,32 @@ require_helm()    { require_tool helm    "https://helm.sh/docs/intro/install/"; 
 require_kubectl() { require_tool kubectl "https://kubernetes.io/docs/tasks/tools/"; }
 require_kind()    { require_tool kind    "https://kind.sigs.k8s.io/docs/user/quick-start/#installation"; }
 
+# ── Kind context ──────────────────────────────────────────────────────────────
+# Returns the kubectl context name for the local kind cluster.
+get_kind_context() {
+  echo "kind-${KIND_CLUSTER_NAME:-local-cluster}"
+}
+
 # ── YQ helpers ────────────────────────────────────────────────────────────────
-# Count enabled components
+# Count enabled components.
 count_enabled() {
   yq '[.components[] | select(.enabled == true)] | length' "$HELM_COMPONENTS_CONFIG"
 }
 
-# Field value for the i-th enabled component (0-based)
+# Field value for the i-th enabled component (0-based).
 # Usage: enabled_field <index> <field>
 enabled_field() {
   local idx="$1" field="$2"
   yq "[.components[] | select(.enabled == true)][$idx].${field}" "$HELM_COMPONENTS_CONFIG"
 }
 
-# All values of a field across enabled components (newline-separated)
+# All values of a field across enabled components (newline-separated).
 # Usage: all_enabled_field <field>
 all_enabled_field() {
   yq '.components[] | select(.enabled == true) | .'"$1" "$HELM_COMPONENTS_CONFIG"
 }
 
-# depends_on list for the i-th enabled component
+# depends_on list for the i-th enabled component.
 # Usage: enabled_deps <index>  → space-separated names
 enabled_deps() {
   local idx="$1"
@@ -79,7 +59,7 @@ enabled_deps() {
     "$HELM_COMPONENTS_CONFIG" 2>/dev/null | tr '\n' ' '
 }
 
-# pre_manifests list for the i-th enabled component
+# pre_manifests list for the i-th enabled component.
 # Usage: enabled_manifests <index>  → newline-separated paths
 enabled_manifests() {
   local idx="$1"
@@ -87,7 +67,7 @@ enabled_manifests() {
     "$HELM_COMPONENTS_CONFIG" 2>/dev/null
 }
 
-# port_forward entries for a named component
+# port_forward entries for a named component.
 # Usage: component_port_forwards <name>  → lines of "service:local:remote"
 component_port_forwards() {
   local name="$1"
@@ -96,9 +76,28 @@ component_port_forwards() {
     "$HELM_COMPONENTS_CONFIG" 2>/dev/null
 }
 
+# ── Pod listing ───────────────────────────────────────────────────────────────
+# Outputs one line per pod with space-separated fields (no headers).
+# Filters by the standard Helm instance label on the component's namespace.
+#
+# Usage: list_component_pods <component-name> <namespace> [custom-columns-spec]
+# Default columns: NAME PHASE READY
+list_component_pods() {
+  local name="$1" ns="$2"
+  local ctx cols
+  ctx=$(get_kind_context)
+  cols="${3:-NAME:.metadata.name,PHASE:.status.phase,READY:.status.containerStatuses[0].ready}"
+  kubectl get pods -n "$ns" \
+    -l "app.kubernetes.io/instance=${name}" \
+    --context "$ctx" \
+    --no-headers \
+    --output="custom-columns=${cols}" \
+    2>/dev/null || true
+}
+
 # ── Pre-flight file-reference check ──────────────────────────────────────────
 # Asserts that the values_file and every pre_manifest for ALL enabled components
-# exist on disk before any helm operation starts.  Call once at the top of
+# exist on disk before any helm operation starts. Call once at the top of
 # kube-deploy.sh so failures are reported together, not mid-deployment.
 validate_enabled_files() {
   local count errs=0
@@ -140,18 +139,15 @@ topo_sort_indices() {
   local -a names=() deps=()
   local i
 
-  # Build name array and deps array
   for i in $(seq 0 $((count - 1))); do
     names[$i]=$(enabled_field "$i" name)
     deps[$i]=$(enabled_deps "$i")
   done
 
-  # in_degree[i] = number of unresolved deps for component i
   local -a in_degree=()
   for i in $(seq 0 $((count - 1))); do
     local d=0
     for dep in ${deps[$i]}; do
-      # Only count deps that are also in the enabled set
       for j in $(seq 0 $((count - 1))); do
         [[ "${names[$j]}" == "$dep" ]] && { d=$(( d + 1 )); break; }
       done
@@ -168,7 +164,6 @@ topo_sort_indices() {
     local cur="${queue[0]}"
     queue=("${queue[@]:1}")
     result+=("$cur")
-    # For every component whose dependency is cur, reduce in_degree
     for i in $(seq 0 $((count - 1))); do
       for dep in ${deps[$i]}; do
         if [[ "$dep" == "${names[$cur]}" ]]; then

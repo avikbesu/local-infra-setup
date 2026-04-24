@@ -9,18 +9,39 @@ Exit codes:
     1 — one or more import errors found
     2 — DagBag initialization failed (environment issue)
 
-Invoked by: make check-dags or scripts/check-deps.sh
+Invoked by: make check-dags
 """
 
 from __future__ import annotations
 
 import logging
 import sys
+import time
 
-from airflow.models import DagBag
 
-logger = logging.getLogger(__name__)
+# ── Logging setup (UTC timestamps matching lib/common.sh format) ──────────────
 
+class _UTCFormatter(logging.Formatter):
+    converter = time.gmtime
+
+    def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
+        ct = self.converter(record.created)
+        return time.strftime(datefmt or "%Y-%m-%dT%H:%M:%SZ", ct)
+
+
+def _setup_logging(debug: bool = False) -> None:
+    level = logging.DEBUG if debug else logging.INFO
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(_UTCFormatter(
+        fmt="%(asctime)s [%(levelname)-5s] %(message)s",
+    ))
+    logging.basicConfig(level=level, handlers=[handler], force=True)
+
+
+log = logging.getLogger(__name__)
+
+
+# ── Core logic ────────────────────────────────────────────────────────────────
 
 def check_dags(dags_folder: str | None = None) -> int:
     """
@@ -31,41 +52,38 @@ def check_dags(dags_folder: str | None = None) -> int:
             configured dags_folder if not provided.
 
     Returns:
-        Exit code: 0 if all DAGs valid, 1 if import errors found.
-
-    Raises:
-        SystemExit: Code 2 if DagBag initialization fails entirely
-            (e.g., missing Airflow config or broken environment).
+        Exit code: 0 if all DAGs valid, 1 if import errors found, 2 on init failure.
     """
-    logger.info("Scanning DAGs for import errors...")
+    from airflow.models import DagBag
+
+    log.info("Scanning DAGs for import errors...")
 
     try:
         dagbag = DagBag(dag_folder=dags_folder)
     except Exception as exc:
-        logger.error("Failed to initialize DagBag: %s", exc, exc_info=True)
-        print(f"❌  DagBag initialization failed: {exc}", file=sys.stderr)
+        log.error("Failed to initialize DagBag: %s", exc, exc_info=True)
         return 2
 
     if dagbag.import_errors:
-        logger.warning(
-            "Found %d DAG(s) with import errors", len(dagbag.import_errors)
-        )
-        print(f"\n❌  Found {len(dagbag.import_errors)} DAG(s) with errors:\n")
+        log.warning("Found %d DAG(s) with import errors:", len(dagbag.import_errors))
         for filepath, error in dagbag.import_errors.items():
-            print(f"  File:  {filepath}")
-            print(f"  Error: {error}\n")
+            log.error("  File:  %s", filepath)
+            log.error("  Error: %s", error)
         return 1
 
-    dag_count = len(dagbag.dags)
-    logger.info("All %d DAGs valid", dag_count)
-    print(f"✅  All {dag_count} DAGs are valid.\n")
+    log.info("All %d DAG(s) valid.", len(dagbag.dags))
     return 0
 
 
+# ── Entry point ───────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
-    sys.exit(check_dags())
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Validate Airflow DAG imports")
+    parser.add_argument("--dags-folder", metavar="PATH", help="Path to DAGs directory")
+    parser.add_argument("--debug", action="store_true", help="Enable DEBUG log level")
+    args = parser.parse_args()
+
+    _setup_logging(debug=args.debug)
+    sys.exit(check_dags(dags_folder=args.dags_folder))

@@ -326,9 +326,9 @@ kube-health: ## Poll pod readiness for all (or one) component(s)  (COMPONENT=nam
 	@bash $(SCRIPTS_DIR)/kube-health.sh $(COMPONENT)
 
 .PHONY: kube-logs
-kube-logs: ## Show pod logs for a component  (COMPONENT=name, optional: FLAG=--previous|--follow)
+kube-logs: ## Show pod logs for a component  (COMPONENT=name, optional: FLAG=--follow|--previous)
 	@[[ -n "$(COMPONENT)" ]] || { echo "Usage: make kube-logs COMPONENT=<name>"; exit 1; }
-	@bash $(SCRIPTS_DIR)/kube-logs.sh $(COMPONENT) $(FLAG)
+	@bash $(SCRIPTS_DIR)/kube-status.sh logs $(COMPONENT) $(FLAG)
 
 .PHONY: kube-port-forward
 kube-port-forward: ## Start background port-forwards for all enabled components
