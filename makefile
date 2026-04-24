@@ -58,7 +58,8 @@ DC := docker compose $(ENV_FILE_FLAGS) $(PROFILE_FLAGS) \
 
 .PHONY: help up down build restart logs shell ps clean prune lint health smoke-test \
         kind-up kind-down kind-status compose-up compose-down .env airflow-dirs \
-        secrets rotate sync dagcheck build-query query pipeline
+        secrets rotate sync dagcheck build-query query pipeline \
+        kube-health kube-logs
 
 # ── Help ────────────────────────────────────────────────────
 default: help
@@ -319,6 +320,15 @@ kube-down: kube-remove kube-stop ## Tear down releases then delete the cluster
 .PHONY: kube-status
 kube-status: ## Show cluster, release, pod, and port-forward status
 	@bash $(SCRIPTS_DIR)/kube-status.sh
+
+.PHONY: kube-health
+kube-health: ## Poll pod readiness for all (or one) component(s)  (COMPONENT=name, KUBE_HEALTH_TIMEOUT=300)
+	@bash $(SCRIPTS_DIR)/kube-health.sh $(COMPONENT)
+
+.PHONY: kube-logs
+kube-logs: ## Show pod logs for a component  (COMPONENT=name, optional: FLAG=--previous|--follow)
+	@[[ -n "$(COMPONENT)" ]] || { echo "Usage: make kube-logs COMPONENT=<name>"; exit 1; }
+	@bash $(SCRIPTS_DIR)/kube-logs.sh $(COMPONENT) $(FLAG)
 
 .PHONY: kube-port-forward
 kube-port-forward: ## Start background port-forwards for all enabled components

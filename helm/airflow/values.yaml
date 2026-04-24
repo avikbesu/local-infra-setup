@@ -21,9 +21,7 @@ executor: "LocalExecutor"
 
 # ── Security contexts ──────────────────────────────────────────
 # Airflow runs as uid 50000 (group 0) — set by the apache/airflow image.
-# allowPrivilegeEscalation and cap drop are safe: no privileged ports,
-# no setuid binaries used at runtime.
-securityContext:
+containerSecurityContext:
   allowPrivilegeEscalation: false
   capabilities:
     drop:

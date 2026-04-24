@@ -36,11 +36,15 @@ install_helm() {
 }
 
 install_yq() {
-  log_info "Installing yq (mikefarah)..."
+  log_info "Installing yq (mikefarah) to ~/.local/bin ..."
   local ver
   ver=$(curl -sL https://api.github.com/repos/mikefarah/yq/releases/latest | grep tag_name | cut -d'"' -f4)
-  curl -sLo /tmp/yq "https://github.com/mikefarah/yq/releases/download/${ver}/yq_linux_amd64"
-  chmod +x /tmp/yq && sudo mv /tmp/yq /usr/local/bin/yq
+  mkdir -p "$HOME/.local/bin"
+  curl -sLo "$HOME/.local/bin/yq" "https://github.com/mikefarah/yq/releases/download/${ver}/yq_linux_amd64"
+  chmod +x "$HOME/.local/bin/yq"
+  # Prepend to PATH for the rest of this shell session so subsequent checks pick up the new binary
+  export PATH="$HOME/.local/bin:$PATH"
+  log_ok "  yq installed to ~/.local/bin/yq — add ~/.local/bin to your PATH in ~/.bashrc or ~/.zshrc"
 }
 
 install_gh() {
@@ -65,15 +69,21 @@ check_tool() {
 
   if command -v "$tool" &>/dev/null; then
     local ver
-    ver=$("$tool" version --short 2>/dev/null || "$tool" --version 2>/dev/null | head -1 || echo "installed")
-    log_ok "  $tool — $ver"
-    return 0
+    # Functionally test the binary — snap packages can be "found" but broken at runtime
+    # (e.g. yq snap on WSL2 fails with XDG_RUNTIME_DIR permission error, exit code 46).
+    if ver=$("$tool" --version 2>/dev/null | head -1) && [[ -n "$ver" ]]; then
+      log_ok "  $tool — $ver"
+      return 0
+    else
+      log_warn "  $tool — found at $(command -v "$tool") but failed to run (broken install?)"
+      # Fall through to install if --install was given
+    fi
+  else
+    log_warn "  $tool — NOT FOUND"
   fi
 
-  log_warn "  $tool — NOT FOUND"
   if $INSTALL_MISSING && [[ -n "$install_fn" ]]; then
     $install_fn
-    log_ok "  $tool — installed"
   fi
 }
 
