@@ -25,16 +25,16 @@ A modular Docker Compose–based local data engineering platform covering object
 
 ## Overview
 
-| Component | Technology | Ports | Purpose |
-|-----------|-----------|-------|---------|
-| Object Storage | MinIO | 9000 (API), 9001 (Console) | S3-compatible local data lake storage |
-| Database | PostgreSQL 16 | 5432 | Iceberg catalog + Airflow metadata |
-| Catalog | Iceberg REST | 8181 | Apache Iceberg table catalog (JDBC-backed) |
-| Query Engine | Trino 435 | 8080 | Distributed SQL over Iceberg tables |
-| Orchestration | Apache Airflow 3 | 8081 (API server) | DAG-based workflow scheduling |
-| Log Shipping | Fluentd | 24224 | Centralised log aggregation → MinIO |
-| Mock Server | WireMock 3.10 | 8090 | HTTP API mocking for development |
-| Reverse Proxy | Nginx | 80 | Unified ingress for all services |
+| Component | Technology | Ports | Purpose | Compose | Kind |
+|-----------|-----------|-------|---------|:-------:|:----:|
+| Object Storage | MinIO | 9000 (API), 9001 (Console) | S3-compatible local data lake storage | ✅ | ✅ |
+| Database | PostgreSQL 16 | 5432 | Iceberg catalog + Airflow metadata | ✅ | ✅ |
+| Catalog | Iceberg REST | 8181 | Apache Iceberg table catalog (JDBC-backed) | ✅ | ❌ |
+| Query Engine | Trino 435 | 8080 | Distributed SQL over Iceberg tables | ✅ | ❌ |
+| Orchestration | Apache Airflow 3 | 8081 (API server) | DAG-based workflow scheduling | ✅ | ✅ |
+| Log Shipping | Fluentd | 24224 | Centralised log aggregation → MinIO | ✅ | ❌ |
+| Mock Server | WireMock 3.10 | 8090 | HTTP API mocking for development | ✅ | ✅ |
+| Reverse Proxy | Nginx | 80 | Unified ingress for all services | ✅ | ✅ |
 
 ---
 

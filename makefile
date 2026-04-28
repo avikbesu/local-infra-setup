@@ -22,44 +22,20 @@ SHELL           := /bin/bash
 .DEFAULT_GOAL   := help
 
 # ── Modular sub-makefiles ────────────────────────────────────
+include scripts/make/compose.mk
 include scripts/make/query.mk
 include scripts/make/mock.mk
 include scripts/make/ollama.mk
 include scripts/make/proxy.mk
 include scripts/make/security.mk
 
-# ── Read ICEBERG_REST_VERSION from .env (no -include, avoids .env remake loop) ─
-ICEBERG_REST_VERSION := $(strip $(shell grep -s '^ICEBERG_REST_VERSION=' .env | cut -d= -f2))
-ICEBERG_REST_VERSION := $(if $(ICEBERG_REST_VERSION),$(ICEBERG_REST_VERSION),0.10.0)
-
 # Export so scripts can inherit without re-reading
 export KIND_CLUSTER_NAME := $(CLUSTER_NAME)
 export HELM_COMPONENTS_CONFIG := $(CURDIR)/$(HELM_COMPONENTS)
 
-# ── Env files ────────────────────────────────────────────────
-# .env holds non-secret defaults; .env.local holds secrets and
-# local overrides. Both are passed to every docker compose call.
-# .env.local values take precedence (it is listed second).
-ENV_FILE_FLAGS := --env-file .env $(if $(wildcard .env.local),--env-file .env.local)
-
-# ── Compose setup ───────────────────────────────────────────
-
-# Gather all docker-compose files in ./compose; base file first.
-COMPOSE_GLOB     := $(wildcard ./compose/docker-compose*.yaml)
-COMPOSE_FILE_LIST := $(COMPOSE_GLOB)
-
-# Build profile flags for `docker compose`
-PROFILES      := $(strip $(shell echo "$(PROFILE)" | tr ',' ' '))
-PROFILE_FLAGS := $(strip $(foreach p,$(PROFILES),$(if $(p),--profile "$(p)")))
-
-# Master compose command — env files + profiles + compose files
-DC := docker compose $(ENV_FILE_FLAGS) $(PROFILE_FLAGS) \
-      $(foreach f,$(COMPOSE_FILE_LIST),-f $(f))
-
-.PHONY: help up down build restart logs shell ps clean prune lint health smoke-test \
-        kind-up kind-down kind-status compose-up compose-down .env airflow-dirs \
-        secrets rotate sync dagcheck build-query query pipeline \
-        kube-health kube-logs
+.PHONY: help up down health smoke-test \
+        kind-up kind-down kind-status .env \
+        secrets rotate
 
 # ── Help ────────────────────────────────────────────────────
 default: help
@@ -76,13 +52,10 @@ help: ## Show this help
 	@echo "    make up PROFILE=pipeline  # pipeline profile overrides"
 	@echo ""
 
-# ── Explicit secrets target (re-run gen at any time) ────────
+# ── Secrets targets ──────────────────────────────────────────
 secrets: ## Generate any missing secrets into .env.local
 	@bash scripts/gen-secrets.sh
- 
-# CHANGE [5]: Rotation target. Passes --rotate to gen-secrets.sh which
-# forwards it to gen_secrets.py. Only the named KEYS are removed and
-# regenerated; all other secrets remain untouched.
+
 rotate: ## Rotate specific secrets  (KEYS=KEY1,KEY2)
 	@[[ -n "$(KEYS)" ]] || { \
 	  echo "❌  Usage: make rotate KEYS=KEY1,KEY2"; \
@@ -91,22 +64,9 @@ rotate: ## Rotate specific secrets  (KEYS=KEY1,KEY2)
 	}
 	@bash scripts/gen-secrets.sh --rotate "$(KEYS)"
 
-# ── Secrets targets ──────────────────────────────────────────
-# CHANGE [4]: Renamed the Make prerequisite from `.env` to `.env.local`
-# so Make tracks the correct output file.
-#
-# The original `.env` target was semantically wrong: `.env` is a
-# committed file that always exists, so Make considered the rule
-# up-to-date on first checkout and never ran gen-secrets.sh for new
-# team members who lacked .env.local.
-#
-# `.env.local` as the target name fixes this — when the file is absent
-# (fresh clone, clean CI runner), Make correctly treats it as missing
-# and runs the recipe.
- 
 .env.local: ## Generate .env.local if it does not exist
 	@bash scripts/gen-secrets.sh
- 
+
 # Compatibility alias: `make .env` still works but delegates to .env.local
 .env: .env.local
 
@@ -125,101 +85,11 @@ down: compose-down ## Stop Docker Compose stack
 
 endif
 
-
-# ── Docker Compose targets ───────────────────────────────────
-compose-up: .env # (internal) Start via Docker Compose
-	@echo "🐳 Starting your application(s) via Docker Compose [PROFILE=$(PROFILE)]..."
-	$(DC) up -d --remove-orphans
-	@echo ""
-	@echo "🚀 Stack is up"
-
-compose-down: ## (internal) Stop Docker Compose stack
-	$(DC) down
-
-build: ## Pull latest images
-	$(DC) pull
-
-restart: .env ## Restart all Compose services
-	$(DC) down
-	$(DC) up -d --remove-orphans
-	@echo ""
-	@echo "🚀 Stack is restarted"
-
-logs: ## Tail logs — make logs SERVICE=trino
-	$(DC) logs -f $(SERVICE)
-
-shell: ## Shell into a service — make shell SERVICE=trino
-	$(DC) exec $(SERVICE) bash || $(DC) exec $(SERVICE) sh
-
-ps: ## Show running containers and health status
-	$(DC) ps
-
-clean: ## Remove containers, networks, volumes — ⚠️  destroys data
-	$(DC) down -v --remove-orphans
-
-prune: ## Remove ALL unused Docker resources — ⚠️  dangerous
-	docker system prune -af --volumes
-
-lint: ## Validate compose config syntax
-	$(DC) config --quiet && echo "✅ Compose config is valid"
-
-sync: ## Perform git submodule sync
-	git submodule update --remote
-
-# ── Application Specific Commands ────────────────────────────
-dagcheck: ## Airflow Dags Check Custom Command
-	@echo "Checking DAGs for errors..."
-	$(DC) exec -w /opt/airflow airflow-scheduler python3 scripts/infra/check_dags.py
-
-build-query: ## Build custom iceberg-rest image (skips if already present)
-	@if docker image inspect iceberg-rest-local:$(ICEBERG_REST_VERSION) \
-	        >/dev/null 2>&1; then \
-	  echo "✅ iceberg-rest-local:$(ICEBERG_REST_VERSION) already exists — skipping build."; \
-	else \
-	  echo "🔨 Building iceberg-rest-local:$(ICEBERG_REST_VERSION)..."; \
-	  docker build \
-	    --build-arg ICEBERG_REST_VERSION=$(ICEBERG_REST_VERSION) \
-	    --tag iceberg-rest-local:$(ICEBERG_REST_VERSION) \
-	    compose/iceberg-rest/; \
-	  echo "✅ iceberg-rest-local:$(ICEBERG_REST_VERSION) built"; \
-	fi
-
-query: .env build-query ## Start query engine stack (Trino + Iceberg REST + Postgres + MinIO)
-	@echo "🔍 Starting query engine stack..."
-	docker compose $(ENV_FILE_FLAGS) \
-		--profile query --profile db --profile storage \
-		$(foreach f,$(COMPOSE_FILE_LIST),-f $(f)) \
-		up -d --remove-orphans 
-	@echo ""
-	@echo "🚀 Query stack is up:"
-	@echo "   Trino UI      → http://localhost:$${TRINO_PORT:-8080}"
-	@echo "   Iceberg REST  → http://localhost:$${ICEBERG_REST_PORT:-8181}"
-	@echo "   MinIO Console → http://localhost:$${MINIO_CONSOLE_PORT:-9001}"
-	@echo "   Postgres      → localhost:$${POSTGRES_PORT:-5432} (dev only)"
-	@echo ""
-
-
-airflow-dirs: ## Create Airflow log/plugin dirs with correct permissions (UID 50000 / GID 0)
-	@mkdir -p compose/container/logs/airflow compose/container/plugins/airflow
-	@chmod 777 compose/container/logs/airflow compose/container/plugins/airflow
-
-pipeline: .env airflow-dirs ## Start pipeline stack (Airflow + Postgres)
-	@echo "🔍 Starting pipeline stack..."
-	docker compose $(ENV_FILE_FLAGS) \
-		--profile pipeline \
-		$(foreach f,$(COMPOSE_FILE_LIST),-f $(f)) \
-		up -d --remove-orphans 
-	@echo ""
-	@echo "🚀 Pipeline stack is up:"
-	@echo "   Airflow UI    → http://localhost:$${AIRFLOW_API_SERVER_PORT:-8081}"
-	@echo "   Postgres      → localhost:$${POSTGRES_PORT:-5432} (dev only)"
-	@echo ""
-
 # ── Kind cluster targets ─────────────────────────────────────
-kind-up: # (internal) Provision kind cluster and deploy stack
+kind-up: ## (internal) Provision kind cluster and deploy stack
 	@bash scripts/kind-deploy.sh up $(CLUSTER_NAME) $(KIND_CONFIG)
 
-kind-down: # (internal) Delete kind cluster
+kind-down: ## (internal) Delete kind cluster
 	@bash scripts/kind-deploy.sh down $(CLUSTER_NAME)
 
 kind-status: ## Show kind cluster and pod status
@@ -241,10 +111,6 @@ check-deps: ## Check required tools (add --install to auto-install)
 .PHONY: helm-repos
 helm-repos: ## Add and update Helm repos for all enabled components
 	@bash $(SCRIPTS_DIR)/kube-helm-repos.sh
-
-# =============================================================================
-##@ Kubernetes — Cluster
-# =============================================================================
 
 # =============================================================================
 ##@ Kubernetes — Validation
