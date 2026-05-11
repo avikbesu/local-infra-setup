@@ -55,11 +55,19 @@ The `make setup` step is required only once per clone. It activates `.githooks/p
 
 ```
 compose/          # One yaml per service group, auto-included by makefile glob
-scripts/make/     # Sub-makefiles included by root makefile (query, mock, ollama, proxy)
+  prometheus/     # Prometheus scrape config
+  grafana/        # Grafana provisioning (datasources, dashboards)
+  fluentd/        # Fluentd Dockerfile + fluent.conf
+  iceberg-rest/   # Custom Iceberg REST Dockerfile + entrypoint
+  trino/          # Trino catalog and node config
+  nginx/          # Nginx config and virtual host
+  wiremock/       # WireMock stub mappings and response files
+scripts/make/     # Sub-makefiles included by root makefile
+                  #   query.mk, mock.mk, ollama.mk, proxy.mk, observability.mk
 scripts/          # Shell scripts for cluster ops, secret gen, health checks
 cluster/          # Kind config + helm-components.yaml (Kubernetes deployment registry)
 helm/             # Helm values files per component
-config/           # Per-service config files (Trino catalog, Postgres init, WireMock stubs)
+config/           # Per-service config files and secrets.yaml
 dags/             # Git submodule (airflow3-by-example) — do not edit directly here
 ```
 

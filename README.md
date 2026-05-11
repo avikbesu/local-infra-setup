@@ -1,6 +1,6 @@
 # Local Infrastructure Setup
 
-A modular Docker Compose–based local data engineering platform covering object storage, distributed SQL, workflow orchestration, centralised log shipping, and Kubernetes deployment.
+A modular Docker Compose–based local data engineering platform covering object storage, distributed SQL, workflow orchestration, centralised log shipping, observability, and Kubernetes deployment.
 
 - [Local Infrastructure Setup](#local-infrastructure-setup)
   - [Overview](#overview)
@@ -15,6 +15,7 @@ A modular Docker Compose–based local data engineering platform covering object
   - [Query Engine](#query-engine)
   - [WireMock Mock Server](#wiremock-mock-server)
   - [Nginx Reverse Proxy](#nginx-reverse-proxy)
+  - [Observability Stack](#observability-stack)
   - [Airflow DAG Validation](#airflow-dag-validation)
   - [Iceberg REST Image](#iceberg-rest-image)
   - [Kubernetes (Kind) Deployment](#kubernetes-kind-deployment)
@@ -35,6 +36,7 @@ A modular Docker Compose–based local data engineering platform covering object
 | Log Shipping | Fluentd | 24224 | Centralised log aggregation → MinIO | ✅ | ❌ |
 | Mock Server | WireMock 3.10 | 8090 | HTTP API mocking for development | ✅ | ✅ |
 | Reverse Proxy | Nginx | 80 | Unified ingress for all services | ✅ | ✅ |
+| Observability | Prometheus + Grafana | 9090 (Prometheus), 3000 (Grafana) | Container metrics collection and visualisation | ✅ | ❌ |
 
 ---
 
@@ -156,6 +158,12 @@ flowchart TD
         airflow_api["airflow-api-server\nUI + REST API\n:8081"]
     end
 
+    subgraph OBS["📊 Observability Stack"]
+        cadvisor["cAdvisor\ncontainer metrics"]
+        prometheus["Prometheus\n:9090"]
+        grafana["Grafana\n:3000"]
+    end
+
     minio          -- "healthy"    --> minio_init
     minio          -- "healthy"    --> fluentd
 
@@ -173,6 +181,9 @@ flowchart TD
 
     airflow_scheduler -. "log driver" .-> fluentd
     airflow_api       -. "log driver" .-> fluentd
+
+    cadvisor       -. "scrape"     .-> prometheus
+    prometheus     -- "healthy"    --> grafana
 ```
 
 > **Legend**
@@ -188,6 +199,9 @@ flowchart TD
 | `docker-compose.logging.yaml` | `logging`, `pipeline` | `fluentd` |
 | `docker-compose.query.yaml` | `query` | `iceberg-rest`, `trino` |
 | `docker-compose.pipeline.yaml` | `pipeline` | `airflow-init`, `airflow-scheduler`, `airflow-api-server` |
+| `docker-compose.mock.yaml` | `mock` | `wiremock` |
+| `docker-compose.proxy.yaml` | `proxy` | `nginx` |
+| `docker-compose.observability.yaml` | `observability` | `prometheus`, `grafana`, `cadvisor` |
 
 ### Common Commands
 
@@ -205,6 +219,9 @@ make up PROFILE=pipeline
 
 # Full stack + nginx reverse proxy
 make proxy-up
+
+# Observability stack (Prometheus + Grafana + cAdvisor)
+make obs-up
 
 # Stop all services
 make down
@@ -271,6 +288,40 @@ make proxy-down    # Stop full stack + proxy
 make proxy-logs    # Tail nginx logs
 make proxy-reload  # Hot-reload nginx config (no downtime)
 ```
+
+---
+
+## Observability Stack
+
+Prometheus scrapes per-container metrics from cAdvisor. Grafana auto-provisions the Prometheus datasource and a pre-built Docker Containers dashboard (CPU, memory, and network I/O panels with a container-name variable filter).
+
+```bash
+make obs-up                         # Start observability stack (profile: observability)
+make obs-down                       # Stop observability stack
+make obs-logs SERVICE=grafana       # Tail logs for a specific service
+make obs-logs SERVICE=prometheus
+make obs-logs SERVICE=cadvisor
+```
+
+| URL | Service |
+|-----|---------|
+| `http://localhost:3000` | Grafana (login: `admin` / see `.env.local` for `GRAFANA_ADMIN_PASSWORD`) |
+| `http://localhost:9090` | Prometheus |
+
+The Grafana admin password is generated on first `make secrets` and stored in `.env.local`. To rotate it:
+
+```bash
+make rotate KEYS=GRAFANA_ADMIN_PASSWORD
+```
+
+Config files:
+
+| Path | Purpose |
+|------|---------|
+| `compose/prometheus/prometheus.yml` | Scrape targets (Prometheus self + cAdvisor) |
+| `compose/grafana/provisioning/datasources/prometheus.yaml` | Auto-provisions the Prometheus datasource |
+| `compose/grafana/provisioning/dashboards/dashboard.yaml` | Dashboard file provider config |
+| `compose/grafana/provisioning/dashboards/containers.json` | Docker Containers dashboard |
 
 ---
 
@@ -366,6 +417,7 @@ The root `makefile` includes sub-makefiles from `scripts/make/`:
 - `mock.mk` — WireMock targets
 - `ollama.mk` — Ollama LLM targets
 - `proxy.mk` — Nginx reverse proxy targets
+- `observability.mk` — Prometheus, Grafana, cAdvisor targets
 
 ### Kubernetes Deployment
 
