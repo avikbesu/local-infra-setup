@@ -102,7 +102,7 @@ services:
           if ! airflow users list 2>/dev/null | grep -qF "${AIRFLOW_ADMIN_USER:-admin}"; then
             airflow users create \
               --username "${AIRFLOW_ADMIN_USER:-admin}" \
-              --password "${AIRFLOW_ADMIN_PASSWORD:-admin}" \
+              --password "${AIRFLOW_ADMIN_PASSWORD:?AIRFLOW_ADMIN_PASSWORD must be set in .env.local}" \
               --firstname Admin \
               --lastname User \
               --role Admin \
@@ -118,7 +118,7 @@ services:
               --conn-host "airflow-api-server" \
               --conn-port "8080" \
               --conn-login "${AIRFLOW_ADMIN_USER:-admin}" \
-              --conn-password "${AIRFLOW_ADMIN_PASSWORD:-admin}"
+              --conn-password "${AIRFLOW_ADMIN_PASSWORD:?AIRFLOW_ADMIN_PASSWORD must be set in .env.local}"
           else
             echo "   ↳ connection 'airflow_api' already exists — skipping"
           fi

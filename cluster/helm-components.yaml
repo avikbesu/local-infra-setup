@@ -50,7 +50,8 @@ components:
     values_file: helm/postgres/values.yaml
     wait_timeout: "5m"
     depends_on: []
-    pre_manifests: []
+    pre_manifests:
+      - helm/postgres/networkpolicy.yaml
     port_forward:
       - service: postgres-postgresql
         local_port: 5432
@@ -68,6 +69,7 @@ components:
     depends_on:
       - postgres
     pre_manifests:
+      - helm/airflow/networkpolicy.yaml
       - helm/airflow/dags_pv.yaml
       - helm/airflow/dags_pvc.yaml
       - helm/airflow/logs_pv.yaml
@@ -115,7 +117,8 @@ components:
     values_file: helm/wiremock/values.yaml
     wait_timeout: "3m"
     depends_on: []
-    pre_manifests: []
+    pre_manifests:
+      - helm/wiremock/networkpolicy.yaml
     port_forward:
       - service: wiremock
         local_port: 8090
@@ -133,7 +136,8 @@ components:
     depends_on:
       - airflow
       - wiremock
-    pre_manifests: []
+    pre_manifests:
+      - helm/nginx/networkpolicy.yaml
     port_forward:
       - service: nginx
         local_port: 8080

@@ -253,6 +253,14 @@ docs:     README, FAQ, CONTRIBUTING updates
 
 Branch naming: `feat/<short-description>`, `fix/<issue-description>`, `chore/<task>`.
 
+Every commit must have both author and committer set to:
+
+```
+Avik Burdwan <avik.burdwan@gmail.com>
+```
+
+Always pass `--author="Avik Burdwan <avik.burdwan@gmail.com>"` when committing and ensure `GIT_COMMITTER_NAME` / `GIT_COMMITTER_EMAIL` are set to the same identity. Never add a `Co-authored-by:` trailer. Never include Claude session URLs in commit messages.
+
 ---
 
 ## Claude Code Configuration
@@ -311,21 +319,18 @@ Default enabled set: postgres · airflow · wiremock · nginx. MinIO is register
 
 ## Known Technical Debt
 
-These are open issues — avoid patterns that worsen them, and fix them when touching the relevant file.
+Open issues — avoid patterns that worsen them, and fix them when touching the relevant file.
 
 | Issue | Location | Severity |
 |-------|----------|---------|
-| `minio/minio:latest` and `minio/mc:latest` unpinned | `compose/docker-compose.storage.yaml` | HIGH |
-| `helm/minio/values.yaml` has `rootPassword: "minio123"` hardcoded | `helm/minio/values.yaml` | HIGH |
-| No securityContext on any compose service | All compose files | HIGH |
-| Hardcoded `${POSTGRES_PASSWORD:-airflow}` fallback in pipeline compose | `docker-compose.pipeline.yaml` | HIGH |
-| `config/postgres/setup.sh` missing `set -euo pipefail` and uses `$(ls ...)` | `config/postgres/setup.sh` | MEDIUM |
-| Fluentd, WireMock, Nginx, Iceberg REST, Trino have no `deploy.resources` in compose | `docker-compose.logging/mock/proxy/query.yaml` | MEDIUM |
-| Nginx compose has no `depends_on` — may 502 on fresh stack startup | `docker-compose.proxy.yaml` | MEDIUM |
-| Nginx K8s routes `/minio/` and `/minio-api/` point to disabled MinIO (502) | `helm/nginx/values.yaml` | MEDIUM |
-| No NetworkPolicy resources in any Helm chart | `helm/*/` | MEDIUM |
-| K8s Airflow task logs not persisted (`logs.persistence.enabled: false`) | `helm/airflow/values.yaml` | MEDIUM |
-| No securityContext on K8s Airflow pods | `helm/airflow/values.yaml` | MEDIUM |
+| No securityContext (`runAsNonRoot`, `readOnlyRootFilesystem`) on compose services | All compose files | HIGH |
+| No HTTPS/TLS for inter-service communication | All services | HIGH |
+| No authentication on Trino or Iceberg REST endpoints | `docker-compose.query.yaml` | HIGH |
+| Nginx K8s routes `/minio/` and `/minio-api/` return 502 when MinIO disabled | `helm/nginx/values.yaml` | MEDIUM |
+| Enabling MinIO in K8s requires manual steps not in `kube-secrets.sh` | `scripts/kube-secrets.sh` | MEDIUM |
+| No Pod Disruption Budgets on any Helm chart | `helm/*/` | MEDIUM |
+| No ResourceQuota on any K8s namespace | `scripts/kube-secrets.sh` | MEDIUM |
+| Airflow task logs not persisted in compose (only host bind-mount) | `docker-compose.pipeline.yaml` | LOW |
 
 ---
 

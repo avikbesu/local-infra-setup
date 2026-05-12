@@ -1,0 +1,23 @@
+# NetworkPolicy for Nginx in the misc namespace.
+# Nginx is the cluster entry point (port-forwarded from localhost).
+# It needs to reach airflow (af namespace) and wiremock (misc namespace).
+# Ingress to nginx itself is allowed from everywhere — port-forward traffic
+# originates from the node IP and bypasses NetworkPolicy anyway.
+#
+# Applied by: make kube-secrets (via pre_manifests in helm-components.yaml)
+# Requires:   kind cluster running kindnet (default CNI, supports NetworkPolicy)
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nginx-allow-all-ingress
+  namespace: misc
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nginx
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow all ingress to nginx (port-forward + any in-cluster client)
+    - {}

@@ -6,13 +6,15 @@
 
 services:
   minio:
-    image: minio/minio:${MINIO_VERSION:-latest}
+    image: minio/minio:${MINIO_VERSION:?MINIO_VERSION must be set in .env}
     profiles:
       - storage
       # - pipeline
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set in .env.local}
@@ -51,6 +53,8 @@ services:
     restart: no
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     depends_on:
       minio:
         condition: service_healthy
