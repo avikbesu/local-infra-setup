@@ -11,6 +11,9 @@ services:
       - storage
       # - pipeline
     restart: unless-stopped
+    networks:
+      - storage
+      - proxy
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -51,6 +54,8 @@ services:
     profiles:
       - storage
     restart: no
+    networks:
+      - storage
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -78,3 +83,9 @@ services:
 
 volumes:
   minio-data:
+
+networks:
+  storage:
+    driver: bridge
+  proxy:
+    driver: bridge

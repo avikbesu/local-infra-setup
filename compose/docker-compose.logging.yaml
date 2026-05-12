@@ -27,6 +27,9 @@ services:
       - logging
       # - pipeline  # logging is failing for airflow
     restart: unless-stopped
+    networks:
+      - logging
+      - storage
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -63,3 +66,9 @@ services:
 
 volumes:
   fluentd-buffer:
+
+networks:
+  logging:
+    driver: bridge
+  storage:
+    driver: bridge

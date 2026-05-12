@@ -1,0 +1,39 @@
+# NetworkPolicy for the s3 (MinIO) namespace.
+# Allows ingress to MinIO only from the af (airflow) and misc (nginx) namespaces.
+# Intra-namespace traffic is unrestricted (minio ↔ minio-init/console).
+# All other ingress is denied by default.
+#
+# Applied by: make kube-secrets (via pre_manifests in helm-components.yaml)
+# Requires:   kind cluster running kindnet (default CNI, supports NetworkPolicy)
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: minio-allow-airflow-and-nginx
+  namespace: s3
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow intra-namespace traffic (minio ↔ minio console, init jobs)
+    - from:
+        - podSelector: {}
+    # Allow Airflow pods in the af namespace to reach MinIO on S3 API port
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: af
+      ports:
+        - protocol: TCP
+          port: 9000
+    # Allow nginx in misc namespace to reach MinIO console (9001) and S3 API (9000)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: misc
+      ports:
+        - protocol: TCP
+          port: 9000
+        - protocol: TCP
+          port: 9001

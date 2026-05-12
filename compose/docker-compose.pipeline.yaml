@@ -54,6 +54,9 @@ x-airflow-common: &airflow-common
     # AIRFLOW_CONN_AIRFLOW_API: "http://${AIRFLOW_ADMIN_USER}:${AIRFLOW_ADMIN_PASSWORD}@airflow-webserver:8080"   # Added logic within init 
     AIRFLOW_VAR_EXEC_ENV: compose
 
+  networks:
+    - pipeline
+    - db
   volumes:
     - ${PWD}/dags/dags:/opt/airflow/dags:ro
     - ${PWD}/compose/container/logs/airflow:/opt/airflow/logs:rw
@@ -147,6 +150,10 @@ services:
     <<: *airflow-common
     command: api-server
     container_name: airflow-api-server
+    networks:
+      - pipeline
+      - db
+      - proxy
     ports:
       - "${AIRFLOW_API_SERVER_PORT:-8080}:8080"
     depends_on:
@@ -181,3 +188,11 @@ services:
 
 volumes:
   plugins:
+
+networks:
+  pipeline:
+    driver: bridge
+  db:
+    driver: bridge
+  proxy:
+    driver: bridge

@@ -98,7 +98,8 @@ components:
     values_file: helm/minio/values.yaml
     wait_timeout: "5m"
     depends_on: []
-    pre_manifests: []
+    pre_manifests:
+      - helm/minio/networkpolicy.yaml
     port_forward:
       - service: minio-console
         local_port: 9001

@@ -35,6 +35,11 @@ services:
     container_name: iceberg-rest
     profiles: [query]
     restart: unless-stopped
+    networks:
+      - db
+      - storage
+      - query
+      - proxy
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -91,6 +96,10 @@ services:
     container_name: trino
     profiles: [query]
     restart: unless-stopped
+    networks:
+      - query
+      - storage
+      - proxy
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -122,3 +131,13 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+
+networks:
+  db:
+    driver: bridge
+  storage:
+    driver: bridge
+  query:
+    driver: bridge
+  proxy:
+    driver: bridge

@@ -26,6 +26,9 @@ services:
     profiles: [mock]
     container_name: wiremock
     restart: unless-stopped
+    networks:
+      - mock
+      - proxy
 
     # WireMock flags:
     #   --verbose                  log every matched/unmatched request
@@ -64,3 +67,9 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+networks:
+  mock:
+    driver: bridge
+  proxy:
+    driver: bridge

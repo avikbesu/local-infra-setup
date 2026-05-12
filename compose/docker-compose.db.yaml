@@ -19,6 +19,8 @@ services:
       - "pipeline"
       - "query"
     container_name: postgres
+    networks:
+      - db
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -69,6 +71,8 @@ services:
   #       condition: service_completed_successfully
   postgres-init:
     image: postgres:${POSTGRES_VERSION:-16-alpine}
+    networks:
+      - db
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -102,3 +106,7 @@ services:
 
 volumes:
   postgres-data:
+
+networks:
+  db:
+    driver: bridge
