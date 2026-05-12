@@ -23,6 +23,8 @@ services:
     image: prom/prometheus:${PROMETHEUS_VERSION}
     profiles: [observability]
     restart: unless-stopped
+    networks:
+      - observability
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -57,6 +59,8 @@ services:
     image: grafana/grafana:${GRAFANA_VERSION}
     profiles: [observability]
     restart: unless-stopped
+    networks:
+      - observability
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -94,6 +98,8 @@ services:
     image: gcr.io/cadvisor/cadvisor:${CADVISOR_VERSION}
     profiles: [observability]
     restart: unless-stopped
+    networks:
+      - observability
     privileged: true
     volumes:
       - /:/rootfs:ro
@@ -118,3 +124,7 @@ services:
 volumes:
   prometheus-data:
   grafana-data:
+
+networks:
+  observability:
+    driver: bridge

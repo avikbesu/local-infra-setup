@@ -29,6 +29,8 @@ services:
     image: nginx:${NGINX_IMAGE_TAG:-1.27-alpine}
     container_name: nginx
     profiles: [proxy]
+    networks:
+      - proxy
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -63,3 +65,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+networks:
+  proxy:
+    driver: bridge
