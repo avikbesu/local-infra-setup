@@ -55,6 +55,20 @@ for ns in db af misc s3; do
   log_info "  namespace/$ns (ensured)"
 done
 
+# ── Namespace-scoped NetworkPolicies ─────────────────────────────────────────
+# Applied here (not via pre_manifests) for components that may be disabled so
+# that the deny-by-default posture is in place whenever the namespace exists.
+log_step "Namespace NetworkPolicies"
+for policy in \
+  "${REPO_ROOT}/helm/postgres/networkpolicy.yaml" \
+  "${REPO_ROOT}/helm/airflow/networkpolicy.yaml" \
+  "${REPO_ROOT}/helm/wiremock/networkpolicy.yaml" \
+  "${REPO_ROOT}/helm/nginx/networkpolicy.yaml" \
+  "${REPO_ROOT}/helm/minio/networkpolicy.yaml"; do
+  kubectl apply -f "$policy"
+  log_ok "  Applied: ${policy#${REPO_ROOT}/}"
+done
+
 # ── ResourceQuota per namespace ───────────────────────────────────────────────
 # Prevents a single component from consuming all node resources.
 # Limits are sized for a single-node kind cluster with ~4 vCPU / 6 GB RAM.
