@@ -1,0 +1,28 @@
+# NetworkPolicy for the db namespace.
+# Allows ingress to PostgreSQL only from the af (airflow) namespace.
+# All other ingress is denied by default.
+#
+# Applied by: make kube-secrets (via pre_manifests in helm-components.yaml)
+# Requires:   kind cluster running kindnet (default CNI, supports NetworkPolicy)
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-allow-airflow
+  namespace: db
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow intra-namespace traffic (e.g. postgres primary ↔ replica, if ever enabled)
+    - from:
+        - podSelector: {}
+    # Allow Airflow pods in the af namespace to reach PostgreSQL on 5432
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: af
+      ports:
+        - protocol: TCP
+          port: 5432

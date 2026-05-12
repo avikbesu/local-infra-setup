@@ -1,0 +1,28 @@
+# NetworkPolicy for the af (airflow) namespace.
+# Allows ingress to the Airflow API server only from the misc namespace (nginx).
+# Intra-namespace traffic is unrestricted (scheduler ↔ api-server, dag-processor, triggerer).
+#
+# Applied by: make kube-secrets (via pre_manifests in helm-components.yaml)
+# Requires:   kind cluster running kindnet (default CNI, supports NetworkPolicy)
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: airflow-allow-intra-and-nginx
+  namespace: af
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow all traffic within the af namespace (scheduler, dag-processor, triggerer → api-server)
+    - from:
+        - podSelector: {}
+    # Allow nginx in misc namespace to reach airflow-api-server on port 8080
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: misc
+      ports:
+        - protocol: TCP
+          port: 8080

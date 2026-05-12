@@ -1,0 +1,25 @@
+# NetworkPolicy for WireMock in the misc namespace.
+# Allows ingress to WireMock only from within misc (nginx → wiremock) and
+# from any namespace for health probes (kubelet uses the node IP, not a pod IP).
+#
+# Applied by: make kube-secrets (via pre_manifests in helm-components.yaml)
+# Requires:   kind cluster running kindnet (default CNI, supports NetworkPolicy)
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: wiremock-allow-intra-namespace
+  namespace: misc
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: wiremock
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow nginx (same namespace) to reach WireMock on port 8080
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8080
