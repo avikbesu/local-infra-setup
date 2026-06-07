@@ -1,0 +1,122 @@
+# ============================================================
+# docker-compose.vault.yaml
+# HashiCorp Vault — local secrets manager for development
+#
+# Vault runs in -dev mode:
+#   - auto-initialized and unsealed on startup
+#   - in-memory backend (secrets lost on container restart)
+#   - KV v2 engine pre-mounted at secret/ by Vault itself
+#   - root token fixed via VAULT_DEV_ROOT_TOKEN in .env.local
+#
+# Airflow integration:
+#   Vault joins the `pipeline` network so Airflow containers
+#   can reach it as vault:8200. The VaultBackend is configured
+#   in docker-compose.pipeline.yaml via AIRFLOW__SECRETS__BACKEND.
+#   Connections and variables stored in Vault are resolved
+#   transparently — DAG code requires no changes.
+#
+#   Vault paths used by Airflow:
+#     secret/airflow/connections/<conn_id>
+#     secret/airflow/variables/<var_name>
+#
+# Profiles:
+#   vault — vault server + vault-init
+#
+# Typical usage:
+#   make vault-up          — start Vault alone
+#   make pipeline-vault    — start Airflow + Vault together
+# ============================================================
+
+services:
+
+  # -- Vault server (dev mode) --------------------------------
+  vault:
+    image: hashicorp/vault:${VAULT_VERSION:-1.17.2}
+    profiles: [vault]
+    container_name: vault
+    networks:
+      - vault
+      - pipeline  # Airflow containers reach Vault as vault:8200
+    ports:
+      - "${VAULT_PORT:-8200}:8200"
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN:?VAULT_DEV_ROOT_TOKEN must be set in .env.local}
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    cap_add:
+      - IPC_LOCK  # prevents Vault memory pages from being swapped to disk
+    cap_drop:
+      - ALL
+    command: server -dev
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+
+  # -- One-shot: seed example secrets in Vault ---------------
+  # Writes the KV paths that Airflow's VaultBackend resolves:
+  #   secret/airflow/connections/<conn_id>
+  #   secret/airflow/variables/<var_name>
+  # Dev mode pre-enables KV v2 at secret/ so no explicit enable needed.
+  vault-init:
+    image: hashicorp/vault:${VAULT_VERSION:-1.17.2}
+    profiles: [vault]
+    networks:
+      - vault
+    depends_on:
+      vault:
+        condition: service_healthy
+    restart: no
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      VAULT_ADDR: "http://vault:8200"
+      VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN:?VAULT_DEV_ROOT_TOKEN must be set in .env.local}
+      POSTGRES_USER: ${POSTGRES_USER:-airflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_DB: ${POSTGRES_DB:-airflow}
+    entrypoint:
+      - sh
+      - -ec
+      - |
+          echo "Seeding Airflow connection: postgres_default..."
+          vault kv put secret/airflow/connections/postgres_default \
+            conn_type=postgres \
+            host=postgres \
+            schema="${POSTGRES_DB}" \
+            login="${POSTGRES_USER}" \
+            password="${POSTGRES_PASSWORD}" \
+            port=5432
+
+          echo "Seeding Airflow variable: environment..."
+          vault kv put secret/airflow/variables/environment value=local
+
+          echo "Vault secrets initialized."
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+        reservations:
+          cpus: "0.1"
+          memory: 32M
+
+networks:
+  vault:
+    driver: bridge
+  pipeline:
+    driver: bridge
