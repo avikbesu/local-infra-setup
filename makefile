@@ -29,6 +29,7 @@ include scripts/make/ollama.mk
 include scripts/make/proxy.mk
 include scripts/make/security.mk
 include scripts/make/observability.mk
+include scripts/make/vault.mk
 
 # Export so scripts can inherit without re-reading
 export KIND_CLUSTER_NAME := $(CLUSTER_NAME)

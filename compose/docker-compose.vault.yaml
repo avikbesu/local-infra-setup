@@ -44,8 +44,6 @@ services:
       VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
     cap_add:
       - IPC_LOCK  # prevents Vault memory pages from being swapped to disk
-    cap_drop:
-      - ALL
     command: server -dev
     restart: unless-stopped
     security_opt:
