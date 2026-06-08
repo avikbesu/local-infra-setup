@@ -100,7 +100,8 @@ services:
     restart: unless-stopped
     networks:
       - observability
-    privileged: true
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro

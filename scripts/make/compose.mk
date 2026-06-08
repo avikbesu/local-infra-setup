@@ -33,7 +33,7 @@ DC := docker compose $(ENV_FILE_FLAGS) $(PROFILE_FLAGS) \
       $(foreach f,$(COMPOSE_FILE_LIST),-f $(f))
 
 .PHONY: compose-up compose-down build restart logs shell ps clean prune lint \
-        sync dagcheck airflow-dirs build-query query pipeline
+        sync dagcheck airflow-dirs build-query build-pipeline query pipeline
 
 # =============================================================================
 # Core lifecycle
@@ -125,7 +125,20 @@ query: .env build-query ## Start query engine stack (Trino + Iceberg REST + Post
 	@echo "   Postgres      → localhost:$${POSTGRES_PORT:-5432} (dev only)"
 	@echo ""
 
-pipeline: .env airflow-dirs ## Start pipeline stack (Airflow + Postgres)
+build-pipeline: ## Build custom Airflow image with baked-in providers (skips if already present)
+	@AIRFLOW_VERSION=3.2.0; \
+	if docker image inspect airflow-local:$${AIRFLOW_VERSION} >/dev/null 2>&1; then \
+	  echo "✅ airflow-local:$${AIRFLOW_VERSION} already exists — skipping build."; \
+	else \
+	  echo "🔨 Building airflow-local:$${AIRFLOW_VERSION}..."; \
+	  docker build \
+	    --build-arg AIRFLOW_VERSION=$${AIRFLOW_VERSION} \
+	    --tag airflow-local:$${AIRFLOW_VERSION} \
+	    compose/airflow/; \
+	  echo "✅ airflow-local:$${AIRFLOW_VERSION} built"; \
+	fi
+
+pipeline: .env build-pipeline airflow-dirs ## Start pipeline stack (Airflow + Postgres)
 	@echo "🔍 Starting pipeline stack..."
 	docker compose $(ENV_FILE_FLAGS) \
 		--profile pipeline \

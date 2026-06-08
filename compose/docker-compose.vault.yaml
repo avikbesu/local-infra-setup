@@ -63,11 +63,17 @@ services:
           cpus: "0.1"
           memory: 64M
 
-  # -- One-shot: seed example secrets in Vault ---------------
-  # Writes the KV paths that Airflow's VaultBackend resolves:
-  #   secret/airflow/connections/<conn_id>
-  #   secret/airflow/variables/<var_name>
-  # Dev mode pre-enables KV v2 at secret/ so no explicit enable needed.
+  # -- Sidecar: seed policies, scoped token, and example secrets -----------
+  # Runs as a long-lived sidecar (restart: unless-stopped) alongside vault.
+  # Dev mode uses an in-memory backend; vault-init.sh re-seeds everything
+  # after each vault restart so the Airflow token and secrets are always valid.
+  #
+  # Seeded paths (KV v2):
+  #   secret/airflow/connections/postgres_default
+  #   secret/airflow/variables/environment
+  #
+  # Created policy: airflow-ro (read-only to secret/airflow/*)
+  # Created token:  VAULT_AIRFLOW_TOKEN (policy-scoped; never the root token)
   vault-init:
     image: hashicorp/vault:${VAULT_VERSION:-1.17.2}
     profiles: [vault]
@@ -76,7 +82,7 @@ services:
     depends_on:
       vault:
         condition: service_healthy
-    restart: no
+    restart: unless-stopped
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -84,33 +90,20 @@ services:
     environment:
       VAULT_ADDR: "http://vault:8200"
       VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN:?VAULT_DEV_ROOT_TOKEN must be set in .env.local}
+      VAULT_AIRFLOW_TOKEN: ${VAULT_AIRFLOW_TOKEN:?VAULT_AIRFLOW_TOKEN must be set in .env.local}
       POSTGRES_USER: ${POSTGRES_USER:-airflow}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.local}
       POSTGRES_DB: ${POSTGRES_DB:-airflow}
-    entrypoint:
-      - sh
-      - -ec
-      - |
-          echo "Seeding Airflow connection: postgres_default..."
-          vault kv put secret/airflow/connections/postgres_default \
-            conn_type=postgres \
-            host=postgres \
-            schema="${POSTGRES_DB}" \
-            login="${POSTGRES_USER}" \
-            password="${POSTGRES_PASSWORD}" \
-            port=5432
-
-          echo "Seeding Airflow variable: environment..."
-          vault kv put secret/airflow/variables/environment value=local
-
-          echo "Vault secrets initialized."
+    volumes:
+      - ./vault/vault-init.sh:/vault-init.sh:ro
+    entrypoint: ["sh", "/vault-init.sh"]
     deploy:
       resources:
         limits:
-          cpus: "0.25"
+          cpus: "0.1"
           memory: 64M
         reservations:
-          cpus: "0.1"
+          cpus: "0.05"
           memory: 32M
 
 networks:

@@ -67,9 +67,9 @@ services:
       # RESTCatalogServer logs the full properties map (incl. passwords)
       # at INFO on startup. This mounts a custom logback.xml that sets
       # that logger to WARN, suppressing the credential line only.
-      # JAVA_TOOL_OPTIONS: "-Dlogback.configurationFile=/logback.xml"
-    # volumes:
-    #   - ./iceberg-rest/logback.xml:/opt/logback.xml:ro
+      JAVA_TOOL_OPTIONS: "-Dlogback.configurationFile=/opt/logback.xml"
+    volumes:
+      - ./iceberg-rest/logback.xml:/opt/logback.xml:ro
     deploy:
       resources:
         limits:

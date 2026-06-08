@@ -19,7 +19,12 @@
 
 # --------------- Airflow shared anchors ---------------------
 x-airflow-common: &airflow-common
-  image: apache/airflow:3.2.0
+  build:
+    context: ./airflow
+    dockerfile: Dockerfile
+    args:
+      AIRFLOW_VERSION: "3.2.0"
+  image: airflow-local:3.2.0
   restart: unless-stopped
   profiles: [pipeline]
   user: "${AIRFLOW_UID:-50000}:0"
@@ -54,18 +59,17 @@ x-airflow-common: &airflow-common
     # AIRFLOW_CONN_AIRFLOW_API: "http://${AIRFLOW_ADMIN_USER}:${AIRFLOW_ADMIN_PASSWORD}@airflow-webserver:8080"   # Added logic within init
     AIRFLOW_VAR_EXEC_ENV: compose
     # ── Vault secrets backend ─────────────────────────────────
-    # Active when `vault` profile is also running (make pipeline-vault).
-    # Airflow resolves connections/variables from Vault transparently;
-    # DAG code requires no changes — BaseHook.get_connection() and
-    # Variable.get() work as normal.
-    # If Vault is not running, lookups fall back to the Airflow DB.
     # VAULT_TOKEN is read by hvac (the Vault Python client) from env.
-    VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN:-}
-    AIRFLOW__SECRETS__BACKEND: airflow.providers.hashicorp.secrets.vault.VaultBackend
-    AIRFLOW__SECRETS__BACKEND_KWARGS: '{"connections_path":"airflow/connections","variables_path":"airflow/variables","url":"http://vault:8200","auth_type":"token","kv_engine_version":2}'
-    # Installs the HashiCorp provider on container start (cached by pip after first run).
-    # Required for VaultBackend. Remove if not using Vault to speed up restarts.
-    _PIP_ADDITIONAL_REQUIREMENTS: apache-airflow-providers-hashicorp
+    # Uses the policy-scoped VAULT_AIRFLOW_TOKEN (not the root token).
+    # AIRFLOW__SECRETS__BACKEND* are injected via .env.vault (see below)
+    # so this block is a no-op when Vault is not running.
+    VAULT_TOKEN: ${VAULT_AIRFLOW_TOKEN:-}
+
+  # Vault backend is activated by .env.vault (created by `make pipeline-vault`,
+  # removed by `make vault-down`). When the file is absent Airflow uses its DB.
+  env_file:
+    - path: .env.vault
+      required: false
 
   networks:
     - pipeline
