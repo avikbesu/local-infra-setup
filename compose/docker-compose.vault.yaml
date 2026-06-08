@@ -27,6 +27,12 @@
 #   make pipeline-vault    — start Airflow + Vault together
 # ============================================================
 
+x-base-security: &base-security
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
 services:
 
   # -- Vault server (dev mode) --------------------------------
@@ -42,12 +48,14 @@ services:
     environment:
       VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN:?VAULT_DEV_ROOT_TOKEN must be set in .env.local}
       VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    # cap_drop:ALL omitted intentionally: Vault dev mode sets file capabilities
+    # (IPC_LOCK) internally; dropping all caps before that prevents startup.
+    security_opt:
+      - no-new-privileges:true
     cap_add:
       - IPC_LOCK  # prevents Vault memory pages from being swapped to disk
     command: server -dev
     restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
       interval: 10s
@@ -77,16 +85,14 @@ services:
   vault-init:
     image: hashicorp/vault:${VAULT_VERSION:-1.17.2}
     profiles: [vault]
+    container_name: vault-init
     networks:
       - vault
     depends_on:
       vault:
         condition: service_healthy
     restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+    <<: *base-security
     environment:
       VAULT_ADDR: "http://vault:8200"
       VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN:?VAULT_DEV_ROOT_TOKEN must be set in .env.local}
@@ -109,5 +115,6 @@ services:
 networks:
   vault:
     driver: bridge
+    internal: true  # vault and vault-init communicate only with each other
   pipeline:
     driver: bridge

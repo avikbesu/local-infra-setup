@@ -18,17 +18,26 @@
 # Prometheus metrics; it is internal-only (no host port).
 # ============================================================
 
+# cAdvisor requires host cgroup/proc access so it cannot drop all capabilities.
+# Use x-no-privesc for cAdvisor; x-base-security for everything else.
+x-no-privesc: &no-privesc
+  security_opt:
+    - no-new-privileges:true
+
+x-base-security: &base-security
+  <<: *no-privesc
+  cap_drop:
+    - ALL
+
 services:
   prometheus:
     image: prom/prometheus:${PROMETHEUS_VERSION}
+    container_name: prometheus
     profiles: [observability]
     restart: unless-stopped
     networks:
       - observability
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+    <<: *base-security
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
@@ -57,14 +66,12 @@ services:
 
   grafana:
     image: grafana/grafana:${GRAFANA_VERSION}
+    container_name: grafana
     profiles: [observability]
     restart: unless-stopped
     networks:
       - observability
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+    <<: *base-security
     depends_on:
       prometheus:
         condition: service_healthy
@@ -93,15 +100,16 @@ services:
           memory: 256M
 
   # cAdvisor exposes per-container CPU, memory, network, and filesystem
-  # metrics to Prometheus. Requires privileged mode to read cgroup data.
+  # metrics to Prometheus. Requires host volume mounts to read cgroup data;
+  # cannot use cap_drop:ALL (uses *no-privesc instead of *base-security).
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:${CADVISOR_VERSION}
+    container_name: cadvisor
     profiles: [observability]
     restart: unless-stopped
     networks:
       - observability
-    security_opt:
-      - no-new-privileges:true
+    <<: *no-privesc
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro

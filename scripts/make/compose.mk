@@ -33,7 +33,7 @@ DC := docker compose $(ENV_FILE_FLAGS) $(PROFILE_FLAGS) \
       $(foreach f,$(COMPOSE_FILE_LIST),-f $(f))
 
 .PHONY: compose-up compose-down build restart logs shell ps clean prune lint \
-        sync dagcheck airflow-dirs build-query build-pipeline query pipeline
+        sync dagcheck airflow-dirs build-query build-pipeline query pipeline pipeline-full
 
 # =============================================================================
 # Core lifecycle
@@ -147,5 +147,19 @@ pipeline: .env build-pipeline airflow-dirs ## Start pipeline stack (Airflow + Po
 	@echo ""
 	@echo "🚀 Pipeline stack is up:"
 	@echo "   Airflow UI    → http://localhost:$${AIRFLOW_API_SERVER_PORT:-8081}"
+	@echo "   Postgres      → localhost:$${POSTGRES_PORT:-5432} (dev only)"
+	@echo ""
+
+pipeline-full: .env build-pipeline airflow-dirs ## Start pipeline stack + MinIO (for DAGs that write to S3)
+	@echo "🔍 Starting full pipeline stack (Airflow + MinIO + Postgres)..."
+	docker compose $(ENV_FILE_FLAGS) \
+		--profile pipeline --profile storage \
+		$(foreach f,$(COMPOSE_FILE_LIST),-f $(f)) \
+		up -d --remove-orphans
+	@echo ""
+	@echo "🚀 Full pipeline stack is up:"
+	@echo "   Airflow UI    → http://localhost:$${AIRFLOW_API_SERVER_PORT:-8081}"
+	@echo "   MinIO Console → http://localhost:$${MINIO_CONSOLE_PORT:-9001}"
+	@echo "   MinIO API     → localhost:$${MINIO_API_PORT:-9000}"
 	@echo "   Postgres      → localhost:$${POSTGRES_PORT:-5432} (dev only)"
 	@echo ""

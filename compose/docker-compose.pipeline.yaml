@@ -109,6 +109,7 @@ services:
   # -- One-shot: DB migration + admin user creation ----------
   airflow-init:
     <<: *airflow-common
+    container_name: airflow-init
     restart: no
     command:
       - bash
@@ -150,6 +151,7 @@ services:
   # -- Scheduler: triggers DAG runs + executes tasks locally -
   airflow-scheduler:
     <<: *airflow-common
+    container_name: airflow-scheduler
     command: scheduler
     depends_on:
       <<: *airflow-common-depends
@@ -183,6 +185,7 @@ services:
 
   airflow-dag-processor:
     <<: *airflow-common
+    container_name: airflow-dag-processor
     command: dag-processor
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
@@ -194,6 +197,7 @@ services:
 
   airflow-triggerer:
     <<: *airflow-common
+    container_name: airflow-triggerer
     command: triggerer
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
@@ -211,5 +215,6 @@ networks:
     driver: bridge
   db:
     driver: bridge
+    internal: true  # postgres is internal-only; matches db.yaml declaration
   proxy:
     driver: bridge
