@@ -23,8 +23,8 @@ x-airflow-common: &airflow-common
     context: ./airflow
     dockerfile: Dockerfile
     args:
-      AIRFLOW_VERSION: "3.2.0"
-  image: airflow-local:3.2.0
+      AIRFLOW_VERSION: "${AIRFLOW_VERSION:-3.2.0}"
+  image: airflow-local:${AIRFLOW_VERSION:-3.2.0}
   restart: unless-stopped
   profiles: [pipeline]
   user: "${AIRFLOW_UID:-50000}:0"

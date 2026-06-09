@@ -35,14 +35,23 @@ path "secret/metadata/airflow/*" {
 }
 POLICY
 
-  echo "[vault-init] Creating scoped Airflow token (id=${VAULT_AIRFLOW_TOKEN:0:8}...)..."
-  vault token create \
-    -id="${VAULT_AIRFLOW_TOKEN}" \
-    -policy=airflow-ro \
-    -no-default-policy \
-    -period=72h \
-    -display-name=airflow-ro \
-    >/dev/null
+  # POSIX-compatible prefix (${var:0:8} is bash-only; busybox sh rejects it).
+  TOKEN_PREFIX=$(printf '%s' "${VAULT_AIRFLOW_TOKEN}" | cut -c1-8)
+  echo "[vault-init] Creating scoped Airflow token (id=${TOKEN_PREFIX}...)..."
+  # Idempotent: skip creation if the token already exists.
+  # vault-init restarts while Vault is still live would otherwise fail here
+  # and crash-loop because set -eu aborts on non-zero exit.
+  if ! vault token lookup "${VAULT_AIRFLOW_TOKEN}" >/dev/null 2>&1; then
+    vault token create \
+      -id="${VAULT_AIRFLOW_TOKEN}" \
+      -policy=airflow-ro \
+      -no-default-policy \
+      -period=72h \
+      -display-name=airflow-ro \
+      >/dev/null
+  else
+    echo "[vault-init] Token already exists — skipping create."
+  fi
 
   echo "[vault-init] Seeding connection: postgres_default..."
   vault kv put secret/airflow/connections/postgres_default \
@@ -64,12 +73,16 @@ main() {
   seed_vault
 
   # Poll: detect vault restart (dev mode wipes all state on restart) and re-seed.
+  # Also renew the scoped token each cycle so it doesn't expire after -period=72h
+  # on long-running stacks where Vault never restarts.
   while true; do
     sleep "${POLL_INTERVAL}"
     if ! vault status -address="${VAULT_ADDR}" >/dev/null 2>&1; then
       echo "[vault-init] Vault became unavailable — waiting for restart..."
       wait_for_vault
       seed_vault
+    else
+      vault token renew "${VAULT_AIRFLOW_TOKEN}" >/dev/null 2>&1 || true
     fi
   done
 }

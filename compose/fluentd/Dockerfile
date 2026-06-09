@@ -8,10 +8,13 @@ FROM fluent/fluentd:v1.19-2
 
 USER root
 
-RUN gem install \
-      fluent-plugin-s3 \
-      fluent-plugin-multi-format-parser \
-      --no-document \
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl \
+  && rm -rf /var/lib/apt/lists/* \
+  && gem install \
+       fluent-plugin-s3 \
+       fluent-plugin-multi-format-parser \
+       --no-document \
   # Pre-create buffer directory owned by fluent user so Docker
   # named volume mount doesn't land as root-owned.
   && mkdir -p /fluentd/buffer \

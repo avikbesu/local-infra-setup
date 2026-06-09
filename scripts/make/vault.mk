@@ -13,7 +13,7 @@ vault-up: .env ## Start Vault server and seed example secrets
 	@echo ""
 	@echo "Vault is up:"
 	@echo "   UI / API  → http://localhost:$${VAULT_PORT:-8200}"
-	@echo "   Token     → $$(grep VAULT_DEV_ROOT_TOKEN .env.local | cut -d= -f2)"
+	@echo "   Token     → $$(grep -E '^VAULT_DEV_ROOT_TOKEN=' .env.local | cut -d= -f2-)"
 	@echo ""
 
 vault-down: ## Stop Vault and remove .env.vault so Airflow stops using VaultBackend
@@ -22,7 +22,9 @@ vault-down: ## Stop Vault and remove .env.vault so Airflow stops using VaultBack
 		$(foreach f,$(COMPOSE_FILE_LIST),-f $(f)) \
 		down
 	@rm -f .env.vault
-	@echo "  🗑  .env.vault removed — Airflow will use DB secrets on next restart"
+	@echo "  🗑  .env.vault removed."
+	@echo "  ⚠️   Running Airflow containers still have VaultBackend active until restarted."
+	@echo "       Run 'make pipeline' to restart Airflow without Vault."
 
 # Creates .env.vault which activates VaultBackend inside Airflow containers.
 # The file is git-ignored and absent by default so `make pipeline` never touches Vault.

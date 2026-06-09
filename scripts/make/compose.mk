@@ -12,9 +12,12 @@
 #   make shell SERVICE=postgres
 # =============================================================================
 
-# ── Read ICEBERG_REST_VERSION from .env (no -include, avoids .env remake loop) ─
+# ── Read versions from .env (no -include, avoids .env remake loop) ──────────
 ICEBERG_REST_VERSION := $(strip $(shell grep -s '^ICEBERG_REST_VERSION=' .env | cut -d= -f2))
 ICEBERG_REST_VERSION := $(if $(ICEBERG_REST_VERSION),$(ICEBERG_REST_VERSION),0.10.0)
+
+AIRFLOW_VERSION := $(strip $(shell grep -s '^AIRFLOW_VERSION=' .env | cut -d= -f2))
+AIRFLOW_VERSION := $(if $(AIRFLOW_VERSION),$(AIRFLOW_VERSION),3.2.0)
 
 # ── Env files ────────────────────────────────────────────────────────────────
 # .env holds non-secret defaults; .env.local holds secrets and local overrides.
@@ -126,16 +129,15 @@ query: .env build-query ## Start query engine stack (Trino + Iceberg REST + Post
 	@echo ""
 
 build-pipeline: ## Build custom Airflow image with baked-in providers (skips if already present)
-	@AIRFLOW_VERSION=3.2.0; \
-	if docker image inspect airflow-local:$${AIRFLOW_VERSION} >/dev/null 2>&1; then \
-	  echo "✅ airflow-local:$${AIRFLOW_VERSION} already exists — skipping build."; \
+	@if docker image inspect airflow-local:$(AIRFLOW_VERSION) >/dev/null 2>&1; then \
+	  echo "✅ airflow-local:$(AIRFLOW_VERSION) already exists — skipping build."; \
 	else \
-	  echo "🔨 Building airflow-local:$${AIRFLOW_VERSION}..."; \
+	  echo "🔨 Building airflow-local:$(AIRFLOW_VERSION)..."; \
 	  docker build \
-	    --build-arg AIRFLOW_VERSION=$${AIRFLOW_VERSION} \
-	    --tag airflow-local:$${AIRFLOW_VERSION} \
+	    --build-arg AIRFLOW_VERSION=$(AIRFLOW_VERSION) \
+	    --tag airflow-local:$(AIRFLOW_VERSION) \
 	    compose/airflow/; \
-	  echo "✅ airflow-local:$${AIRFLOW_VERSION} built"; \
+	  echo "✅ airflow-local:$(AIRFLOW_VERSION) built"; \
 	fi
 
 pipeline: .env build-pipeline airflow-dirs ## Start pipeline stack (Airflow + Postgres)
