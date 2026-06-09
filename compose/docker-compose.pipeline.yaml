@@ -67,8 +67,10 @@ x-airflow-common: &airflow-common
 
   # Vault backend is activated by .env.vault (created by `make pipeline-vault`,
   # removed by `make vault-down`). When the file is absent Airflow uses its DB.
+  # Path is relative to this compose file's directory (compose/), so ../ reaches
+  # the project root where vault.mk creates .env.vault.
   env_file:
-    - path: .env.vault
+    - path: ../.env.vault
       required: false
 
   networks:

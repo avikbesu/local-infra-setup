@@ -33,6 +33,12 @@ path "secret/data/airflow/*" {
 path "secret/metadata/airflow/*" {
   capabilities = ["list"]
 }
+# hvac calls /auth/token/lookup-self to verify authentication before every
+# request. Without this the VaultBackend raises "Vault Authentication Error!"
+# even though the token can read secrets.
+path "auth/token/lookup-self" {
+  capabilities = ["read"]
+}
 POLICY
 
   # POSIX-compatible prefix (${var:0:8} is bash-only; busybox sh rejects it).
