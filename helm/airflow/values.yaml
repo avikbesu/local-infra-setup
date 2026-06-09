@@ -140,11 +140,15 @@ dagProcessor:
       memory: 256Mi
   waitForMigrations:
     enabled: true
+  # ── Probe tuning (same rationale as triggerer above) ──────────
+  # `airflow jobs check --job-type DagProcessorJob` can take 20-30s on a
+  # resource-constrained kind node.  timeoutSeconds must exceed command
+  # wall-time; periodSeconds must be comfortably larger so probes don't overlap.
   livenessProbe:
-    initialDelaySeconds: 90
-    timeoutSeconds: 60
-    periodSeconds: 90
-    failureThreshold: 5
+    initialDelaySeconds: 90   # wait for DB migrations + process startup
+    timeoutSeconds: 60        # command budget; kubelet kills after this
+    periodSeconds: 90         # gap between probe attempts
+    failureThreshold: 5       # ~7.5 min of grace before pod is restarted
 
 # ── Scheduler ─────────────────────────────────────────────────
 scheduler:

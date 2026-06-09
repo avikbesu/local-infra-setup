@@ -11,6 +11,12 @@
 #                    Safe to re-run — all statements are idempotent.
 # ============================================================
 
+x-base-security: &base-security
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
 services:
   postgres:
     image: postgres:${POSTGRES_VERSION:-16-alpine}
@@ -22,10 +28,7 @@ services:
     networks:
       - db
     restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+    <<: *base-security
     cap_add:
       - CHOWN        # chown data directory to postgres user on first start
       - SETUID       # su-exec: drop from root to postgres OS user
@@ -38,7 +41,7 @@ services:
       POSTGRES_DB:       ${POSTGRES_DB:-airflow}
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ${BASE_DIR}/../config/postgres:/opt/init/sql:rw
+      - ${BASE_DIR}/../config/postgres:/opt/init/sql:ro
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
@@ -71,12 +74,10 @@ services:
   #       condition: service_completed_successfully
   postgres-init:
     image: postgres:${POSTGRES_VERSION:-16-alpine}
+    container_name: postgres-init
     networks:
       - db
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+    <<: *base-security
     profiles:
       - "db"
       # pipeline profile intentionally excluded:
@@ -99,7 +100,7 @@ services:
     volumes:
       - ${BASE_DIR}/../config/postgres:/opt/init:ro
     # set -e aborts on the first failing script so errors are never silently swallowed.
-    entrypoint: 
+    entrypoint:
       - bash
       - -ec
       - /opt/init/setup.sh
@@ -110,3 +111,4 @@ volumes:
 networks:
   db:
     driver: bridge
+    internal: true  # postgres is internal-only; services reach it via db network

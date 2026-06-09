@@ -21,6 +21,12 @@
 #   trino         — Distributed SQL engine over Iceberg tables via REST catalog
 # ============================================================
 
+x-base-security: &base-security
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
 services:
 
   # ── Iceberg REST Catalog ──────────────────────────────────
@@ -40,10 +46,7 @@ services:
       - storage
       - query
       - proxy
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+    <<: *base-security
     depends_on:
       postgres-init:                        # iceberg DB must exist first
         condition: service_completed_successfully
@@ -67,9 +70,9 @@ services:
       # RESTCatalogServer logs the full properties map (incl. passwords)
       # at INFO on startup. This mounts a custom logback.xml that sets
       # that logger to WARN, suppressing the credential line only.
-      # JAVA_TOOL_OPTIONS: "-Dlogback.configurationFile=/logback.xml"
-    # volumes:
-    #   - ./iceberg-rest/logback.xml:/opt/logback.xml:ro
+      JAVA_TOOL_OPTIONS: "-Dlogback.configurationFile=/opt/logback.xml"
+    volumes:
+      - ./iceberg-rest/logback.xml:/opt/logback.xml:ro
     deploy:
       resources:
         limits:
@@ -100,10 +103,7 @@ services:
       - query
       - storage
       - proxy
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+    <<: *base-security
     depends_on:
       iceberg-rest:
         condition: service_healthy
@@ -135,6 +135,7 @@ services:
 networks:
   db:
     driver: bridge
+    internal: true  # postgres is internal-only; matches db.yaml declaration
   storage:
     driver: bridge
   query:

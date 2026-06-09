@@ -23,9 +23,12 @@ services:
       context: ./fluentd
       dockerfile: Dockerfile
     image: fluentd-local:${FLUENTD_IMAGE_TAG:-1.0}  # bump FLUENTD_IMAGE_TAG in .env on Dockerfile changes
+    container_name: fluentd
     profiles:
       - logging
-      # - pipeline  # logging is failing for airflow
+      # pipeline excluded: start with `make up PROFILE=storage,logging,pipeline`
+      # to enable log shipping. fluentd-async (set in pipeline.yaml) means
+      # Airflow containers start fine even when fluentd is not running.
     restart: unless-stopped
     networks:
       - logging
@@ -58,7 +61,7 @@ services:
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "sh", "-c", "echo '' | nc -w1 localhost 24224"]
+      test: ["CMD", "curl", "-sf", "http://localhost:9880/api/plugins.json"]
       interval: 15s
       timeout: 5s
       retries: 5

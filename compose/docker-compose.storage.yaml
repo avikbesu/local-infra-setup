@@ -4,20 +4,26 @@
 #   docker compose --profile storage up
 # ============================================================
 
+x-base-security: &base-security
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
 services:
   minio:
     image: minio/minio:${MINIO_VERSION:?MINIO_VERSION must be set in .env}
     profiles:
       - storage
-      # - pipeline
+      # pipeline intentionally excluded: Airflow does not require MinIO for
+      # basic DAG execution. Add --profile storage alongside --profile pipeline
+      # when DAGs write to S3, or use `make pipeline-full` to start both together.
+    container_name: minio
     restart: unless-stopped
     networks:
       - storage
       - proxy
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+    <<: *base-security
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set in .env.local}
@@ -53,13 +59,11 @@ services:
     image: minio/mc:${MC_VERSION}
     profiles:
       - storage
+    container_name: minio-init
     restart: no
     networks:
       - storage
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+    <<: *base-security
     depends_on:
       minio:
         condition: service_healthy
@@ -80,6 +84,14 @@ services:
         done;
         echo 'All buckets ready.';
       "
+    deploy:
+      resources:
+        limits:
+          cpus: "0.2"
+          memory: 64M
+        reservations:
+          cpus: "0.05"
+          memory: 32M
 
 volumes:
   minio-data:

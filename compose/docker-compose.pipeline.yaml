@@ -19,7 +19,12 @@
 
 # --------------- Airflow shared anchors ---------------------
 x-airflow-common: &airflow-common
-  image: apache/airflow:3.2.0
+  build:
+    context: ./airflow
+    dockerfile: Dockerfile
+    args:
+      AIRFLOW_VERSION: "${AIRFLOW_VERSION:-3.2.0}"
+  image: airflow-local:${AIRFLOW_VERSION:-3.2.0}
   restart: unless-stopped
   profiles: [pipeline]
   user: "${AIRFLOW_UID:-50000}:0"
@@ -51,8 +56,22 @@ x-airflow-common: &airflow-common
     AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
     AIRFLOW_VAR_ENVIRONMENT: local
     # Creating connection
-    # AIRFLOW_CONN_AIRFLOW_API: "http://${AIRFLOW_ADMIN_USER}:${AIRFLOW_ADMIN_PASSWORD}@airflow-webserver:8080"   # Added logic within init 
+    # AIRFLOW_CONN_AIRFLOW_API: "http://${AIRFLOW_ADMIN_USER}:${AIRFLOW_ADMIN_PASSWORD}@airflow-webserver:8080"   # Added logic within init
     AIRFLOW_VAR_EXEC_ENV: compose
+    # ── Vault secrets backend ─────────────────────────────────
+    # VAULT_TOKEN is read by hvac (the Vault Python client) from env.
+    # Uses the policy-scoped VAULT_AIRFLOW_TOKEN (not the root token).
+    # AIRFLOW__SECRETS__BACKEND* are injected via .env.vault (see below)
+    # so this block is a no-op when Vault is not running.
+    VAULT_TOKEN: ${VAULT_AIRFLOW_TOKEN:-}
+
+  # Vault backend is activated by .env.vault (created by `make pipeline-vault`,
+  # removed by `make vault-down`). When the file is absent Airflow uses its DB.
+  # Path is relative to this compose file's directory (compose/), so ../ reaches
+  # the project root where vault.mk creates .env.vault.
+  env_file:
+    - path: ../.env.vault
+      required: false
 
   networks:
     - pipeline
@@ -92,6 +111,7 @@ services:
   # -- One-shot: DB migration + admin user creation ----------
   airflow-init:
     <<: *airflow-common
+    container_name: airflow-init
     restart: no
     command:
       - bash
@@ -133,6 +153,7 @@ services:
   # -- Scheduler: triggers DAG runs + executes tasks locally -
   airflow-scheduler:
     <<: *airflow-common
+    container_name: airflow-scheduler
     command: scheduler
     depends_on:
       <<: *airflow-common-depends
@@ -166,6 +187,7 @@ services:
 
   airflow-dag-processor:
     <<: *airflow-common
+    container_name: airflow-dag-processor
     command: dag-processor
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
@@ -177,6 +199,7 @@ services:
 
   airflow-triggerer:
     <<: *airflow-common
+    container_name: airflow-triggerer
     command: triggerer
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
@@ -194,5 +217,6 @@ networks:
     driver: bridge
   db:
     driver: bridge
+    internal: true  # postgres is internal-only; matches db.yaml declaration
   proxy:
     driver: bridge

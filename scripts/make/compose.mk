@@ -12,9 +12,12 @@
 #   make shell SERVICE=postgres
 # =============================================================================
 
-# ── Read ICEBERG_REST_VERSION from .env (no -include, avoids .env remake loop) ─
+# ── Read versions from .env (no -include, avoids .env remake loop) ──────────
 ICEBERG_REST_VERSION := $(strip $(shell grep -s '^ICEBERG_REST_VERSION=' .env | cut -d= -f2))
 ICEBERG_REST_VERSION := $(if $(ICEBERG_REST_VERSION),$(ICEBERG_REST_VERSION),0.10.0)
+
+AIRFLOW_VERSION := $(strip $(shell grep -s '^AIRFLOW_VERSION=' .env | cut -d= -f2))
+AIRFLOW_VERSION := $(if $(AIRFLOW_VERSION),$(AIRFLOW_VERSION),3.2.0)
 
 # ── Env files ────────────────────────────────────────────────────────────────
 # .env holds non-secret defaults; .env.local holds secrets and local overrides.
@@ -33,7 +36,7 @@ DC := docker compose $(ENV_FILE_FLAGS) $(PROFILE_FLAGS) \
       $(foreach f,$(COMPOSE_FILE_LIST),-f $(f))
 
 .PHONY: compose-up compose-down build restart logs shell ps clean prune lint \
-        sync dagcheck airflow-dirs build-query query pipeline
+        sync dagcheck airflow-dirs build-query build-pipeline query pipeline pipeline-full
 
 # =============================================================================
 # Core lifecycle
@@ -125,7 +128,19 @@ query: .env build-query ## Start query engine stack (Trino + Iceberg REST + Post
 	@echo "   Postgres      → localhost:$${POSTGRES_PORT:-5432} (dev only)"
 	@echo ""
 
-pipeline: .env airflow-dirs ## Start pipeline stack (Airflow + Postgres)
+build-pipeline: ## Build custom Airflow image with baked-in providers (skips if already present)
+	@if docker image inspect airflow-local:$(AIRFLOW_VERSION) >/dev/null 2>&1; then \
+	  echo "✅ airflow-local:$(AIRFLOW_VERSION) already exists — skipping build."; \
+	else \
+	  echo "🔨 Building airflow-local:$(AIRFLOW_VERSION)..."; \
+	  docker build \
+	    --build-arg AIRFLOW_VERSION=$(AIRFLOW_VERSION) \
+	    --tag airflow-local:$(AIRFLOW_VERSION) \
+	    compose/airflow/; \
+	  echo "✅ airflow-local:$(AIRFLOW_VERSION) built"; \
+	fi
+
+pipeline: .env build-pipeline airflow-dirs ## Start pipeline stack (Airflow + Postgres)
 	@echo "🔍 Starting pipeline stack..."
 	docker compose $(ENV_FILE_FLAGS) \
 		--profile pipeline \
@@ -134,5 +149,19 @@ pipeline: .env airflow-dirs ## Start pipeline stack (Airflow + Postgres)
 	@echo ""
 	@echo "🚀 Pipeline stack is up:"
 	@echo "   Airflow UI    → http://localhost:$${AIRFLOW_API_SERVER_PORT:-8081}"
+	@echo "   Postgres      → localhost:$${POSTGRES_PORT:-5432} (dev only)"
+	@echo ""
+
+pipeline-full: .env build-pipeline airflow-dirs ## Start pipeline stack + MinIO (for DAGs that write to S3)
+	@echo "🔍 Starting full pipeline stack (Airflow + MinIO + Postgres)..."
+	docker compose $(ENV_FILE_FLAGS) \
+		--profile pipeline --profile storage \
+		$(foreach f,$(COMPOSE_FILE_LIST),-f $(f)) \
+		up -d --remove-orphans
+	@echo ""
+	@echo "🚀 Full pipeline stack is up:"
+	@echo "   Airflow UI    → http://localhost:$${AIRFLOW_API_SERVER_PORT:-8081}"
+	@echo "   MinIO Console → http://localhost:$${MINIO_CONSOLE_PORT:-9001}"
+	@echo "   MinIO API     → localhost:$${MINIO_API_PORT:-9000}"
 	@echo "   Postgres      → localhost:$${POSTGRES_PORT:-5432} (dev only)"
 	@echo ""

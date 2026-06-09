@@ -41,7 +41,6 @@ services:
       - "${NGINX_PORT:-80}:80"
     volumes:
       - ${BASE_DIR}/../compose/nginx/:/etc/nginx/:ro
-      - ${BASE_DIR}/../compose/nginx/conf.d:/etc/nginx/conf.d:ro
     deploy:
       resources:
         limits:

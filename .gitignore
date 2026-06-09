@@ -5,6 +5,7 @@ compose/container/
 
 # ── Local secrets — never commit ─────────────────────────────
 .env.local
+.env.vault
 
 # ── OS artifacts ─────────────────────────────────────────────
 .DS_Store
